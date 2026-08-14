@@ -4,16 +4,41 @@ import { describe, expect, it, vi } from "vitest";
 import { ChatAssistant } from "./chat-assistant";
 
 describe("ChatAssistant", () => {
-  it("shows Naila's current program context and a supportive greeting", () => {
+  it("renders a full-screen chat shell with a route back to the dashboard", () => {
     render(<ChatAssistant />);
 
     expect(
-      screen.getByRole("heading", { level: 1, name: "Teman ngobrol untuk langkah sehatmu" }),
+      screen.getByRole("heading", { level: 1, name: "Pendamping Sehat.in" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("88,7 kg")).toBeInTheDocument();
-    expect(screen.getByText("6 hari")).toBeInTheDocument();
-    expect(screen.getByText("Latihan Hari Ini")).toBeInTheDocument();
+    expect(screen.getByRole("main")).toHaveAttribute("id", "chat-conversation");
+    expect(screen.getByRole("link", { name: "Kembali ke dashboard" })).toHaveAttribute(
+      "href",
+      "/dashboard",
+    );
+
+    expect(screen.getByRole("complementary", { name: "Riwayat percakapan" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Percakapan baru" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /progres minggu ini/i })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByText("Ringkasanmu")).not.toBeInTheDocument();
     expect(screen.getByText(/aku sudah melihat progres terbarumu/i)).toBeInTheDocument();
+  });
+
+  it("starts a new local conversation and restores a selected thread", async () => {
+    const user = userEvent.setup();
+    render(<ChatAssistant />);
+
+    await user.click(screen.getByRole("button", { name: "Percakapan baru" }));
+
+    expect(screen.getByRole("heading", { name: "Mulai percakapan baru" })).toBeInTheDocument();
+    expect(screen.queryByText(/aku sudah melihat progres terbarumu/i)).not.toBeInTheDocument();
+
+    const workoutThread = screen.getByRole("button", { name: /latihan terasa berat/i });
+    await user.click(workoutThread);
+
+    expect(workoutThread).toHaveAttribute("aria-pressed", "true");
+    expect(
+      screen.getByText(/kita bisa membuat latihan hari ini lebih ringan/i),
+    ).toBeInTheDocument();
   });
 
   it("adds a typed message and a contextual dummy response", async () => {
