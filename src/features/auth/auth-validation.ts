@@ -28,6 +28,7 @@ export const onboardingSchema = z.object({
   weeklyTargetKg: z.coerce.number().min(0.5, "Target mingguan minimal 0,5 kg.").max(1, "Target mingguan maksimal 1 kg."),
   activityLevel: z.enum(["pemula", "menengah", "aktif"]),
   mealPreference: z.enum(["seimbang", "tinggi-protein", "nabati"]),
+  aiProcessingConsent: z.enum(["on"]).optional().transform((value) => value === "on"),
 }).refine((value) => value.targetWeightKg < value.initialWeightKg, {
   path: ["targetWeightKg"],
   message: "Target berat harus lebih rendah dari berat awal.",

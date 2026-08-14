@@ -2473,6 +2473,32 @@ dialog::backdrop {
 .onboarding-form { display: grid; gap: 1rem; }
 .onboarding-section { padding: clamp(1rem, 3vw, 1.5rem); border: 1px solid var(--border-soft); border-radius: 1.1rem; background: var(--surface); box-shadow: var(--shadow); }
 .onboarding-section h2 { padding-block-end: 0.85rem; border-block-end: 1px solid var(--border-soft); font-size: 1.1rem; }
+.ai-consent-card {
+  padding: 1rem;
+  border: 1px solid var(--border-soft);
+  border-radius: 1rem;
+  background: var(--surface-soft);
+}
+.ai-consent-card label {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.8rem;
+  align-items: start;
+  cursor: pointer;
+}
+.ai-consent-card input {
+  inline-size: 1.2rem;
+  block-size: 1.2rem;
+  margin-block-start: 0.15rem;
+  accent-color: var(--accent);
+}
+.ai-consent-card input:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
+}
+.ai-consent-card span { display: grid; gap: 0.3rem; }
+.ai-consent-card strong { font-size: 0.9rem; }
+.ai-consent-card small { color: var(--muted); font-size: 0.75rem; line-height: 1.55; }
 .onboarding-submit { inline-size: 100%; }
 
 .completion-save-status { inline-size: 100%; min-block-size: 1.3rem; margin-block-start: 0.9rem; color: var(--muted); font-size: 0.76rem; font-weight: 700; }

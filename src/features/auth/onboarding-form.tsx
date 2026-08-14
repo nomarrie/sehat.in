@@ -21,6 +21,25 @@ export function OnboardingForm({ defaultName }: { defaultName: string }) {
         <label className="form-field"><span>Preferensi makanan</span><select name="mealPreference" defaultValue="seimbang"><option value="seimbang">Seimbang</option><option value="tinggi-protein">Tinggi protein</option><option value="nabati">Lebih banyak pilihan nabati</option></select></label>
       </div></section>
       <aside className="food-disclaimer"><strong>Catatan penting</strong><p>Sehat.in membantu menyusun kebiasaan umum dan bukan pengganti konsultasi tenaga profesional. Berhenti bila tubuh terasa tidak nyaman.</p></aside>
+      <section className="ai-consent-card" aria-labelledby="ai-consent-title">
+        <label htmlFor="ai-processing-consent">
+          <input
+            id="ai-processing-consent"
+            name="aiProcessingConsent"
+            type="checkbox"
+            aria-describedby="ai-consent-description"
+          />
+          <span>
+            <strong id="ai-consent-title">Izinkan personalisasi dengan AI</strong>
+            <small id="ai-consent-description">
+              Jika kamu setuju, berat saat ini dan target, preferensi makanan, tingkat aktivitas,
+              serta pola latihan dikirim ke OpenRouter dengan Zero Data Retention dan provider
+              terbatas. Nama, usia, tinggi badan, dan riwayat berat tidak dikirim. Tanpa
+              persetujuan, Sehat.in tetap membuat rencana lokal.
+            </small>
+          </span>
+        </label>
+      </section>
       <p className="auth-message" role="status" aria-live="polite">{state.message}</p>
       <button className="button button-primary onboarding-submit" type="submit" disabled={pending}>{pending ? "Menyusun program awal…" : "Mulai program saya"}</button>
     </form>
