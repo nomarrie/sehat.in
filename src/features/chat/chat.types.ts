@@ -6,6 +6,14 @@ export type ChatMessage = {
   kind?: "message" | "adjustment";
 };
 
+export type ChatThread = {
+  id: string;
+  title: string;
+  preview: string;
+  timeLabel: string;
+  messages: ChatMessage[];
+};
+
 export type ChatContextItem = {
   id: "weight" | "streak" | "workout";
   label: string;

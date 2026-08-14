@@ -1,26 +1,23 @@
 "use client";
 
-import { BarbellIcon } from "@phosphor-icons/react/dist/ssr/Barbell";
+import { ArrowLeftIcon } from "@phosphor-icons/react/dist/ssr/ArrowLeft";
 import { ChatCircleDotsIcon } from "@phosphor-icons/react/dist/ssr/ChatCircleDots";
-import { FireSimpleIcon } from "@phosphor-icons/react/dist/ssr/FireSimple";
+import { HeartbeatIcon } from "@phosphor-icons/react/dist/ssr/Heartbeat";
 import { PaperPlaneTiltIcon } from "@phosphor-icons/react/dist/ssr/PaperPlaneTilt";
-import { ScalesIcon } from "@phosphor-icons/react/dist/ssr/Scales";
+import { ChatsCircleIcon } from "@phosphor-icons/react/dist/ssr/ChatsCircle";
+import { PlusIcon } from "@phosphor-icons/react/dist/ssr/Plus";
 import { ShieldCheckIcon } from "@phosphor-icons/react/dist/ssr/ShieldCheck";
 import { SparkleIcon } from "@phosphor-icons/react/dist/ssr/Sparkle";
+import Link from "next/link";
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import {
-  chatContext,
+  chatThreads,
   initialChatMessages,
   quickPrompts,
   suggestedWorkoutAdjustment,
 } from "@/data/chat-data";
 import type { ChatMessage } from "./chat.types";
 
-const contextIcons = {
-  weight: ScalesIcon,
-  streak: FireSimpleIcon,
-  workout: BarbellIcon,
-};
 
 function getDummyReply(message: string): Pick<ChatMessage, "content" | "kind"> {
   const normalized = message.toLocaleLowerCase("id-ID");
@@ -70,6 +67,7 @@ export function ChatAssistant() {
   const [adjustmentStatus, setAdjustmentStatus] = useState<"idle" | "applied" | "kept">(
     "idle",
   );
+  const [activeThreadId, setActiveThreadId] = useState(chatThreads[0]?.id ?? "");
   const messageSequence = useRef(initialChatMessages.length);
   const scrollAnchor = useRef<HTMLLIElement>(null);
 
@@ -124,45 +122,88 @@ export function ChatAssistant() {
     sendMessage(prompt);
   }
 
+  function startNewConversation() {
+    setMessages([]);
+    setDraft("");
+    setAdjustmentStatus("idle");
+    setActiveThreadId("");
+  }
+
+  function selectThread(threadId: string) {
+    const thread = chatThreads.find((item) => item.id === threadId);
+    if (!thread) return;
+
+    setMessages(thread.messages);
+    setDraft("");
+    setAdjustmentStatus("idle");
+    setActiveThreadId(thread.id);
+  }
+
   return (
     <div className="chat-page">
-      <header className="chat-page-heading">
-        <div>
-          <p className="date-label">Pendamping virtual</p>
-          <h1>Teman ngobrol untuk langkah sehatmu</h1>
+      <a className="skip-link" href="#chat-conversation">
+        Lewati ke percakapan
+      </a>
+
+      <header className="chat-topbar">
+        <div className="chat-topbar-navigation">
+          <Link className="chat-back-link" href="/dashboard" aria-label="Kembali ke dashboard">
+            <ArrowLeftIcon size={20} weight="bold" aria-hidden="true" />
+          </Link>
+          <Link className="chat-brand" href="/dashboard" aria-label="Sehat.in, dashboard">
+            <span className="brand-mark" aria-hidden="true">
+              <HeartbeatIcon size={20} weight="bold" />
+            </span>
+            <span>Sehat.in</span>
+          </Link>
         </div>
-        <p>Tanyakan progres, makanan, atau latihan tanpa perlu mengulang ceritamu.</p>
+
+        <div className="chat-topbar-assistant">
+          <span className="chat-assistant-avatar" aria-hidden="true">
+            <ChatCircleDotsIcon size={22} weight="fill" />
+          </span>
+          <div>
+            <h1>Pendamping Sehat.in</h1>
+            <p><span aria-hidden="true" /> Siap menemani</p>
+          </div>
+        </div>
+
+        <span className="chat-demo-badge">Mode demo</span>
       </header>
 
-      <div className="chat-workspace">
-        <aside className="chat-context-panel" aria-labelledby="chat-context-title">
-          <div className="chat-context-heading">
-            <span className="module-icon" aria-hidden="true">
-              <SparkleIcon size={21} weight="fill" />
-            </span>
-            <div>
-              <p className="module-kicker">Konteks percakapan</p>
-              <h2 id="chat-context-title">Ringkasan Naila</h2>
-            </div>
-          </div>
+      <main id="chat-conversation" className="chat-workspace" tabIndex={-1}>
+        <aside className="chat-sidebar" aria-label="Riwayat percakapan">
+          <button className="chat-new-thread" type="button" onClick={startNewConversation}>
+            <PlusIcon size={18} weight="bold" aria-hidden="true" />
+            <span>Percakapan baru</span>
+          </button>
 
-          <ul className="chat-context-list" role="list">
-            {chatContext.map((item) => {
-              const Icon = contextIcons[item.id];
-              return (
-                <li key={item.id}>
-                  <span className="chat-context-icon" aria-hidden="true">
-                    <Icon size={19} weight="bold" />
-                  </span>
-                  <span>
-                    <small>{item.label}</small>
-                    <strong>{item.value}</strong>
-                    <small>{item.detail}</small>
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
+          <nav className="chat-thread-navigation" aria-labelledby="chat-thread-title">
+            <h2 id="chat-thread-title">Percakapan</h2>
+            <ul className="chat-thread-list" role="list">
+              {chatThreads.map((thread) => {
+                const isActive = activeThreadId === thread.id;
+
+                return (
+                  <li key={thread.id}>
+                    <button
+                      className={isActive ? "is-active" : undefined}
+                      type="button"
+                      aria-pressed={isActive}
+                      onClick={() => selectThread(thread.id)}
+                    >
+                      <ChatsCircleIcon size={18} weight={isActive ? "fill" : "regular"} aria-hidden="true" />
+                      <span>
+                        <strong>{thread.title}</strong>
+                        <small>{thread.preview}</small>
+                      </span>
+                      <time>{thread.timeLabel}</time>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </nav>
 
           <div className="chat-safety-note">
             <ShieldCheckIcon size={20} weight="fill" aria-hidden="true" />
@@ -174,18 +215,18 @@ export function ChatAssistant() {
         </aside>
 
         <section className="chat-panel" aria-label="Percakapan dengan pendamping Sehat.in">
-          <header className="chat-panel-header">
-            <span className="chat-assistant-avatar" aria-hidden="true">
-              <ChatCircleDotsIcon size={23} weight="fill" />
-            </span>
-            <div>
-              <h2>Pendamping Sehat.in</h2>
-              <p><span aria-hidden="true" /> Siap menemani</p>
-            </div>
-            <span className="chat-demo-badge">Mode demo</span>
-          </header>
-
           <ol className="chat-feed" aria-label="Percakapan" aria-live="polite">
+            {messages.length === 0 ? (
+              <li className="chat-empty-state">
+                <span className="chat-message-avatar" aria-hidden="true">
+                  <SparkleIcon size={16} weight="fill" />
+                </span>
+                <div>
+                  <h2>Mulai percakapan baru</h2>
+                  <p>Tulis pertanyaan tentang progres, makanan, atau latihanmu di bawah.</p>
+                </div>
+              </li>
+            ) : null}
             {messages.map((message) => (
               <li className={`chat-message chat-message-${message.role}`} key={message.id}>
                 {message.role === "assistant" ? (
@@ -272,7 +313,7 @@ export function ChatAssistant() {
             <p className="chat-composer-hint">Enter untuk kirim · Shift + Enter untuk baris baru</p>
           </div>
         </section>
-      </div>
+      </main>
     </div>
   );
 }

@@ -21,7 +21,7 @@ describe("auth validation", () => {
   });
 
   it("accepts onboarding data within the PRD safety boundaries", () => {
-    expect(onboardingSchema.safeParse({
+    const result = onboardingSchema.safeParse({
       fullName: "Naila Putri",
       age: "28",
       heightCm: "165",
@@ -30,7 +30,27 @@ describe("auth validation", () => {
       weeklyTargetKg: "0.5",
       activityLevel: "pemula",
       mealPreference: "seimbang",
-    }).success).toBe(true);
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.aiProcessingConsent).toBe(false);
+  });
+
+  it("records AI processing consent only when the checkbox is explicitly selected", () => {
+    const result = onboardingSchema.safeParse({
+      fullName: "Naila Putri",
+      age: "28",
+      heightCm: "165",
+      initialWeightKg: "88.7",
+      targetWeightKg: "75",
+      weeklyTargetKg: "0.5",
+      activityLevel: "pemula",
+      mealPreference: "seimbang",
+      aiProcessingConsent: "on",
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.aiProcessingConsent).toBe(true);
   });
 
   it("rejects an unsafe weekly target and a target above the starting weight", () => {

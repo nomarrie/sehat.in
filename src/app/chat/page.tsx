@@ -1,14 +1,12 @@
 import type { Metadata } from "next";
-import { AppShell } from "@/components/navigation/app-shell";
 import { ChatAssistant } from "@/features/chat/chat-assistant";
+import { requireOnboardedUser } from "@/lib/auth/guards";
 
 export const metadata: Metadata = { title: "Pendamping" };
 
-export default function ChatPage() {
-  return (
-    <AppShell activePath="/chat">
-      <ChatAssistant />
-    </AppShell>
-  );
+export default async function ChatPage() {
+  await requireOnboardedUser();
+
+  return <ChatAssistant />;
 }
 

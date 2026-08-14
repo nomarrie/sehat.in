@@ -1,25 +1,4 @@
-import type { ChatContextItem, ChatMessage, QuickPrompt } from "@/features/chat/chat.types";
-
-export const chatContext: ChatContextItem[] = [
-  {
-    id: "weight",
-    label: "Berat saat ini",
-    value: "88,7 kg",
-    detail: "Turun 0,5 kg minggu ini",
-  },
-  {
-    id: "streak",
-    label: "Streak aktif",
-    value: "6 hari",
-    detail: "22 dari 30 menit hari ini",
-  },
-  {
-    id: "workout",
-    label: "Paket aktif",
-    value: "Latihan Hari Ini",
-    detail: "Pemula · sekitar 28 menit",
-  },
-];
+import type { ChatMessage, ChatThread, QuickPrompt } from "@/features/chat/chat.types";
 
 export const initialChatMessages: ChatMessage[] = [
   {
@@ -29,6 +8,48 @@ export const initialChatMessages: ChatMessage[] = [
       "Halo, Naila. Aku sudah melihat progres terbarumu. Streak enam harimu masih aktif dan target minggu ini sudah dekat. Mau membahas latihan, makanan, atau progresmu?",
     timeLabel: "Sekarang",
     kind: "message",
+  },
+];
+
+export const chatThreads: ChatThread[] = [
+  {
+    id: "weekly-progress",
+    title: "Progres minggu ini",
+    preview: "Target mingguan dan ritme yang bisa dijaga",
+    timeLabel: "Hari ini",
+    messages: initialChatMessages,
+  },
+  {
+    id: "workout-adjustment",
+    title: "Latihan terasa berat",
+    preview: "Usulan penyesuaian latihan hari ini",
+    timeLabel: "Kemarin",
+    messages: [
+      {
+        id: "assistant-workout-history",
+        role: "assistant",
+        content:
+          "Kita bisa membuat latihan hari ini lebih ringan. Aku menyiapkan usulan di bawah; paket aktifmu tetap sama sampai kamu mengonfirmasi.",
+        timeLabel: "Kemarin",
+        kind: "adjustment",
+      },
+    ],
+  },
+  {
+    id: "post-workout-meal",
+    title: "Makan setelah latihan",
+    preview: "Pilihan sederhana untuk memulihkan tenaga",
+    timeLabel: "Senin",
+    messages: [
+      {
+        id: "assistant-meal-history",
+        role: "assistant",
+        content:
+          "Setelah latihan, pilih makan yang terasa cukup dan mudah dibuat. Oat pisang dengan yogurt atau nasi hangat dengan ayam serta sayur bisa menjadi pilihan.",
+        timeLabel: "Senin",
+        kind: "message",
+      },
+    ],
   },
 ];
 
@@ -46,4 +67,3 @@ export const suggestedWorkoutAdjustment = {
     "Wall Push-Up: waktu istirahat 45 menjadi 60 detik",
   ],
 };
-

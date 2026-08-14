@@ -74,6 +74,7 @@ export async function completeOnboardingAction(_state: AuthFormState, formData: 
     fullName: formData.get("fullName"), age: formData.get("age"), heightCm: formData.get("heightCm"),
     initialWeightKg: formData.get("initialWeightKg"), targetWeightKg: formData.get("targetWeightKg"),
     weeklyTargetKg: formData.get("weeklyTargetKg"), activityLevel: formData.get("activityLevel"), mealPreference: formData.get("mealPreference"),
+    aiProcessingConsent: formData.get("aiProcessingConsent"),
   });
   if (!parsed.success) return { errors: fieldErrors(parsed.error), message: "Periksa kembali data program kamu." };
 
@@ -92,6 +93,7 @@ export async function completeOnboardingAction(_state: AuthFormState, formData: 
     reminderTime: "18:30",
     weeklySummaryEnabled: true,
     timeZone: "Asia/Makassar",
+    aiProcessingConsent: parsed.data.aiProcessingConsent,
   } });
   if (onboarding.error) return { message: getBackendErrorMessage(onboarding.error, "Data program dan rencana awal belum dapat disimpan.") };
   redirect("/dashboard");
