@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ChatAssistant } from "./chat-assistant";
@@ -72,6 +72,47 @@ describe("ChatAssistant", () => {
     await user.click(latestThread);
     expect(latestThread).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByText(/aku sudah melihat progres terbarumu/i)).toBeInTheDocument();
+  });
+
+  it("renders assistant Markdown as semantic React elements while keeping user text literal", () => {
+    render(
+      <ChatAssistant
+        initialData={{
+          ...initialData,
+          messages: [
+            {
+              id: "assistant-markdown",
+              role: "assistant",
+              content: "### Rencana sederhana\n\n- Pilih **protein**\n- Tambahkan `sayur`",
+              timeLabel: "Sekarang",
+              kind: "message",
+              generatedByAi: true,
+            },
+            {
+              id: "user-markdown",
+              role: "user",
+              content: "**Tampilkan ini apa adanya**",
+              timeLabel: "Sekarang",
+              kind: "message",
+              generatedByAi: false,
+            },
+          ],
+        }}
+      />,
+    );
+
+    const markdownHeading = screen.getByRole("heading", {
+      level: 3,
+      name: "Rencana sederhana",
+    });
+    const assistantMessage = markdownHeading.closest<HTMLElement>(".chat-message-content");
+
+    expect(markdownHeading).toBeInTheDocument();
+    expect(assistantMessage).not.toBeNull();
+    expect(within(assistantMessage!).getAllByRole("listitem")).toHaveLength(2);
+    expect(screen.getByText("protein").tagName).toBe("STRONG");
+    expect(screen.getByText("sayur").tagName).toBe("CODE");
+    expect(screen.getByText("**Tampilkan ini apa adanya**")).toBeInTheDocument();
   });
 
   it("submits a message to the server and renders the persisted assistant response", async () => {

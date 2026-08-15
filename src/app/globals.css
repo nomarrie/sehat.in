@@ -3143,7 +3143,8 @@ dialog::backdrop {
   min-inline-size: 0;
 }
 
-.chat-message-content > p {
+.chat-message-markdown,
+.chat-message-user .chat-message-content > p {
   padding: 0.78rem 0.9rem;
   border: 1px solid var(--border-soft);
   border-radius: 0.35rem 0.9rem 0.9rem;
@@ -3151,6 +3152,60 @@ dialog::backdrop {
   font-size: 0.84rem;
   line-height: 1.6;
   overflow-wrap: anywhere;
+}
+
+.chat-message-markdown {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.chat-message-markdown :where(h3, h4, h5, h6) {
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.chat-message-markdown :where(ul, ol) {
+  padding-inline-start: 1.25rem;
+}
+
+.chat-message-markdown li + li {
+  margin-block-start: 0.25rem;
+}
+
+.chat-message-markdown a {
+  color: var(--accent);
+  font-weight: 700;
+  text-decoration-thickness: 0.08em;
+  text-underline-offset: 0.16em;
+}
+
+.chat-message-markdown :not(pre) > code {
+  padding: 0.08rem 0.3rem;
+  border-radius: 0.3rem;
+  background: var(--surface-soft);
+  font-size: 0.9em;
+}
+
+.chat-message-markdown pre {
+  max-inline-size: 100%;
+  padding: 0.7rem;
+  overflow-x: auto;
+  border-radius: 0.6rem;
+  background: var(--surface-soft);
+  font-size: 0.76rem;
+  line-height: 1.55;
+  white-space: pre;
+}
+
+.chat-message-markdown blockquote {
+  padding-inline-start: 0.75rem;
+  border-inline-start: 0.2rem solid var(--border);
+  color: var(--muted);
+}
+
+.chat-message-markdown hr {
+  border: 0;
+  border-block-start: 1px solid var(--border-soft);
 }
 
 .chat-message-user .chat-message-content > p {
@@ -3367,7 +3422,7 @@ dialog::backdrop {
 }
 
 @media (forced-colors: active) {
-  :where(.chat-context-panel, .chat-panel, .chat-message-content > p, .chat-adjustment-card) {
+  :where(.chat-context-panel, .chat-panel, .chat-message-markdown, .chat-message-content > p, .chat-adjustment-card) {
     border: 1px solid CanvasText;
   }
 }
