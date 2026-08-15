@@ -15,6 +15,7 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from "react";
+import ReactMarkdown, { type Components } from "react-markdown";
 import { quickPrompts } from "@/data/chat-data";
 import {
   resolveWorkoutAdjustmentAction,
@@ -26,6 +27,15 @@ const contextIcons = {
   weight: ScalesIcon,
   streak: FireSimpleIcon,
   workout: BarbellIcon,
+};
+
+const assistantMarkdownComponents: Components = {
+  h1: "h3",
+  h2: "h3",
+  pre: ({ node, ...props }) => {
+    void node;
+    return <pre tabIndex={0} {...props} />;
+  },
 };
 
 export function ChatAssistant({ initialData }: { initialData: ChatPageData }) {
@@ -185,7 +195,15 @@ export function ChatAssistant({ initialData }: { initialData: ChatPageData }) {
                   </span>
                 ) : null}
                 <div className="chat-message-content">
-                  <p>{message.content}</p>
+                  {message.role === "assistant" ? (
+                    <div className="chat-message-markdown">
+                      <ReactMarkdown components={assistantMarkdownComponents} skipHtml>
+                        {message.content}
+                      </ReactMarkdown>
+                    </div>
+                  ) : (
+                    <p>{message.content}</p>
+                  )}
                   {message.kind === "adjustment" && message.adjustment ? (
                     <section className="chat-adjustment-card" aria-labelledby={`${message.id}-title`}>
                       <div>
