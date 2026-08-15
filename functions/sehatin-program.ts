@@ -7,6 +7,10 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
 };
 
+const defaultModel = "openai/gpt-oss-120b";
+const groqChatCompletionsUrl = "https://api.groq.com/openai/v1/chat/completions";
+const modelTimeoutMs = 25_000;
+
 const exerciseSchema = z
   .object({
     name: z.string().trim().min(2).max(100),
@@ -42,15 +46,27 @@ const mealSchema = z.object({
   cookingSteps: z.array(z.string().min(5).max(1000)).min(2).max(20),
 });
 
+const workoutSchema = z.object({
+  name: z.string().trim().min(2).max(120),
+  difficulty: z.enum(["pemula", "menengah"]),
+  purpose: z.string().trim().min(10).max(500),
+  estimatedMinutes: z.number().int().min(5).max(120),
+  exercises: z.array(exerciseSchema).min(3).max(10),
+});
+
 const generatedPlanSchema = z.object({
-  workout: z.object({
-    name: z.string().trim().min(2).max(120),
-    difficulty: z.enum(["pemula", "menengah"]),
-    purpose: z.string().trim().min(10).max(500),
-    estimatedMinutes: z.number().int().min(5).max(120),
-    exercises: z.array(exerciseSchema).min(3).max(10),
-  }),
+  workout: workoutSchema,
   meals: z.array(mealSchema).length(4),
+});
+
+const chatReplySchema = z.object({
+  answer: z.string().trim().min(1).max(3000),
+  adjustment: z.object({
+    title: z.string().trim().min(2).max(120),
+    description: z.string().trim().min(10).max(500),
+    changes: z.array(z.string().trim().min(3).max(300)).min(1).max(10),
+    workout: workoutSchema,
+  }).nullable(),
 });
 
 const resultItemSchema = z.object({
@@ -76,15 +92,21 @@ const requestSchema = z.discriminatedUnion("action", [
     reminderTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).default("18:30"),
     weeklySummaryEnabled: z.boolean().default(true),
     timeZone: z.string().min(1).max(100).default("Asia/Makassar"),
+    requestId: z.string().uuid().optional(),
   }).refine((value) => value.targetWeightKg < value.initialWeightKg, {
     path: ["targetWeightKg"],
     message: "Target weight must be lower than the starting weight",
   }),
-  z.object({ action: z.literal("generate-plan"), reason: z.enum(["onboarding", "weight-update"]) }),
+  z.object({
+    action: z.literal("generate-plan"),
+    reason: z.enum(["onboarding", "weight-update"]),
+    requestId: z.string().uuid().optional(),
+  }),
   z.object({
     action: z.literal("record-weight"),
     weightKg: z.number().min(30).max(300),
     loggedOn: z.string().date(),
+    requestId: z.string().uuid().optional(),
   }),
   z.object({
     action: z.literal("complete-workout"),
@@ -95,9 +117,21 @@ const requestSchema = z.discriminatedUnion("action", [
     completedAt: z.string().datetime(),
     results: z.array(resultItemSchema).max(50).default([]),
   }),
+  z.object({
+    action: z.literal("chat-message"),
+    sessionId: z.string().uuid().nullable(),
+    clientMessageId: z.string().uuid(),
+    content: z.string().trim().min(1).max(500),
+  }),
+  z.object({
+    action: z.literal("resolve-chat-adjustment"),
+    messageId: z.string().uuid(),
+    decision: z.enum(["apply", "decline"]),
+  }),
 ]);
 
 type GeneratedPlan = z.infer<typeof generatedPlanSchema>;
+type ChatReply = z.infer<typeof chatReplySchema>;
 type GenerationReason = "onboarding" | "weight-update" | "workout-complete";
 
 type UserContext = {
@@ -107,6 +141,45 @@ type UserContext = {
   latestPackage: Record<string, unknown> | null;
   latestExercises: Array<Record<string, unknown>>;
 };
+
+type ChatContext = {
+  profile: Record<string, unknown>;
+  weightLogs: Array<Record<string, unknown>>;
+  weeklyGoal: Record<string, unknown> | null;
+  streak: Record<string, unknown> | null;
+  activePackage: Record<string, unknown> | null;
+  activeExercises: Array<Record<string, unknown>>;
+};
+
+type ModelSuccess<T> = {
+  ok: true;
+  data: T;
+  model: string;
+  promptTokens: number | null;
+  completionTokens: number | null;
+};
+
+type ModelResult<T> = ModelSuccess<T> | {
+  ok: false;
+  code: string;
+  model: string;
+};
+
+type AiClaim = {
+  allowed: boolean;
+  duplicate: boolean;
+  reason: string | null;
+  requestId?: string;
+};
+
+class RequestRejectedError extends Error {
+  constructor(
+    readonly status: number,
+    readonly code: string,
+  ) {
+    super(code);
+  }
+}
 
 function response(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -140,9 +213,9 @@ function addDays(isoDate: string, days: number) {
 
 async function loadContext(admin: ReturnType<typeof createAdminClient>, userId: string): Promise<UserContext> {
   const [profileResult, logsResult, goalsResult, packagesResult] = await Promise.all([
-    admin.database.from("profiles").select("user_id, full_name, age, height_cm, initial_weight_kg, current_weight_kg, target_weight_kg, weekly_target_kg, activity_level, meal_preference, time_zone").eq("user_id", userId).maybeSingle(),
-    admin.database.from("weight_logs").select("weight_kg, logged_on").eq("user_id", userId).order("logged_on", { ascending: false }).limit(12),
-    admin.database.from("weekly_goals").select("week_start, start_weight_kg, target_weight_kg, planned_loss_kg, status").eq("user_id", userId).order("week_start", { ascending: false }).limit(4),
+    admin.database.from("profiles").select("user_id, current_weight_kg, target_weight_kg, weekly_target_kg, activity_level, meal_preference, time_zone").eq("user_id", userId).maybeSingle(),
+    admin.database.from("weight_logs").select("weight_kg, logged_on").eq("user_id", userId).order("logged_on", { ascending: false }).limit(6),
+    admin.database.from("weekly_goals").select("week_start, start_weight_kg, target_weight_kg, planned_loss_kg, status").eq("user_id", userId).order("week_start", { ascending: false }).limit(2),
     admin.database.from("exercise_packages").select("id, name, difficulty_level, purpose, estimated_minutes, scheduled_for, status").eq("user_id", userId).order("scheduled_for", { ascending: false }).order("created_at", { ascending: false }).limit(1),
   ]);
 
@@ -170,6 +243,162 @@ async function loadContext(admin: ReturnType<typeof createAdminClient>, userId: 
     latestPackage,
     latestExercises,
   };
+}
+
+async function loadChatContext(
+  admin: ReturnType<typeof createAdminClient>,
+  userId: string,
+): Promise<ChatContext> {
+  const [profileResult, logsResult, goalResult, streakResult, packageResult] = await Promise.all([
+    admin.database.from("profiles")
+      .select("full_name, current_weight_kg, target_weight_kg, weekly_target_kg, meal_preference, time_zone")
+      .eq("user_id", userId)
+      .maybeSingle(),
+    admin.database.from("weight_logs")
+      .select("weight_kg, logged_on")
+      .eq("user_id", userId)
+      .order("logged_on", { ascending: false })
+      .limit(3),
+    admin.database.from("weekly_goals")
+      .select("target_weight_kg, planned_loss_kg, status, week_start")
+      .eq("user_id", userId)
+      .order("week_start", { ascending: false })
+      .limit(1),
+    admin.database.from("streaks")
+      .select("current_streak, longest_streak, last_active_date")
+      .eq("user_id", userId)
+      .maybeSingle(),
+    admin.database.from("exercise_packages")
+      .select("id, name, difficulty_level, purpose, estimated_minutes, scheduled_for")
+      .eq("user_id", userId)
+      .eq("status", "active")
+      .eq("generation_status", "ready")
+      .order("scheduled_for", { ascending: true })
+      .order("created_at", { ascending: false })
+      .limit(1),
+  ]);
+  const firstError = profileResult.error ?? logsResult.error ?? goalResult.error
+    ?? streakResult.error ?? packageResult.error;
+  if (firstError) throw firstError;
+  if (!profileResult.data) throw new Error("Onboarding is required before chat.");
+
+  const activePackage = packageResult.data?.[0] ?? null;
+  let activeExercises: Array<Record<string, unknown>> = [];
+  if (activePackage?.id) {
+    const exerciseResult = await admin.database.from("sub_exercises")
+      .select("name, mode, sets, repetitions, duration_seconds, rest_seconds, order_index, instruction")
+      .eq("package_id", activePackage.id)
+      .eq("user_id", userId)
+      .order("order_index", { ascending: true })
+      .limit(20);
+    if (exerciseResult.error) throw exerciseResult.error;
+    activeExercises = exerciseResult.data ?? [];
+  }
+
+  return {
+    profile: profileResult.data,
+    weightLogs: logsResult.data ?? [],
+    weeklyGoal: goalResult.data?.[0] ?? null,
+    streak: streakResult.data ?? null,
+    activePackage,
+    activeExercises,
+  };
+}
+
+async function callGroq<T>(
+  parser: z.ZodType<T>,
+  schemaName: string,
+  messages: Array<{ role: "system" | "user" | "assistant"; content: string }>,
+  maxCompletionTokens: number,
+): Promise<ModelResult<T>> {
+  const apiKey = Deno.env.get("GROQ_API_KEY");
+  const model = Deno.env.get("GROQ_CHAT_MODEL") ?? defaultModel;
+  if (!apiKey) return { ok: false, code: "groq_unconfigured", model };
+
+  try {
+    const aiResponse = await fetch(groqChatCompletionsUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      signal: AbortSignal.timeout(modelTimeoutMs),
+      body: JSON.stringify({
+        model,
+        messages,
+        max_completion_tokens: maxCompletionTokens,
+        response_format: {
+          type: "json_schema",
+          json_schema: {
+            name: schemaName,
+            strict: true,
+            schema: z.toJSONSchema(parser, { target: "draft-7" }),
+          },
+        },
+      }),
+    });
+    if (!aiResponse.ok) {
+      return { ok: false, code: `groq_http_${aiResponse.status}`, model };
+    }
+    const payload = await aiResponse.json();
+    const content = payload?.choices?.[0]?.message?.content;
+    if (typeof content !== "string") {
+      return { ok: false, code: "groq_empty_response", model };
+    }
+
+    const parsed = parser.safeParse(JSON.parse(content));
+    if (!parsed.success) return { ok: false, code: "groq_invalid_response", model };
+    return {
+      ok: true,
+      data: parsed.data,
+      model: typeof payload.model === "string" ? payload.model : model,
+      promptTokens: Number.isFinite(payload?.usage?.prompt_tokens)
+        ? Number(payload.usage.prompt_tokens)
+        : null,
+      completionTokens: Number.isFinite(payload?.usage?.completion_tokens)
+        ? Number(payload.usage.completion_tokens)
+        : null,
+    };
+  } catch (error) {
+    const code = error instanceof DOMException && error.name === "TimeoutError"
+      ? "groq_timeout"
+      : "groq_request_failed";
+    return { ok: false, code, model };
+  }
+}
+
+async function claimAiRequest(
+  admin: ReturnType<typeof createAdminClient>,
+  userId: string,
+  feature: "chat" | "program",
+  clientRequestId: string,
+): Promise<AiClaim> {
+  const result = await admin.database.rpc("edge_claim_ai_request", {
+    p_user_id: userId,
+    p_feature: feature,
+    p_client_request_id: clientRequestId,
+    p_daily_limit: feature === "chat" ? 40 : 6,
+    p_cooldown_seconds: feature === "chat" ? 2 : 45,
+  });
+  if (result.error) throw result.error;
+  return result.data as AiClaim;
+}
+
+async function finishAiRequest(
+  admin: ReturnType<typeof createAdminClient>,
+  userId: string,
+  requestId: string,
+  values: { status: "succeeded" | "failed"; model?: string; usedAi?: boolean; failureCode?: string },
+) {
+  const result = await admin.database.rpc("edge_finish_ai_request", {
+    p_user_id: userId,
+    p_request_id: requestId,
+    p_status: values.status,
+    p_model: values.model ?? null,
+    p_used_ai: values.usedAi ?? false,
+    p_failure_code: values.failureCode ?? null,
+  });
+  if (result.error) console.error("Failed to finish AI request", result.error);
 }
 
 function fallbackMeals(preference: unknown): GeneratedPlan["meals"] {
@@ -293,32 +522,32 @@ function fallbackPlan(context: UserContext, reason: GenerationReason): Generated
   };
 }
 
-async function tryAiPlan(context: UserContext, reason: GenerationReason): Promise<GeneratedPlan | null> {
-  const apiKey = Deno.env.get("OPENROUTER_API_KEY");
-  const model = Deno.env.get("OPENROUTER_MODEL");
-  if (!apiKey || !model) return null;
-
-  const prompt = `Susun program Sehat.in dalam JSON untuk alasan ${reason}. Gunakan Bahasa Indonesia yang suportif. Jangan tampilkan label kondisi medis, diagnosis, atau klaim terapi. Target penurunan mingguan harus tetap 0,5–1 kg. Latihan harus rendah risiko untuk pemula, progresif dalam kenaikan kecil, dan menjadi lebih ringan bila dua target mingguan berturut-turut gagal. Buat tepat empat rekomendasi makanan: Sarapan, Makan siang, Camilan, Makan malam. Data pengguna: ${JSON.stringify({ profile: context.profile, weightLogs: context.weightLogs, weeklyGoals: context.weeklyGoals, latestPackage: context.latestPackage, latestExercises: context.latestExercises })}. Bentuk JSON wajib: {"workout":{"name":string,"difficulty":"pemula"|"menengah","purpose":string,"estimatedMinutes":number,"exercises":[{"name":string,"mode":"timed"|"repetitions","sets":number,"repetitions":number|null,"durationSeconds":number|null,"restSeconds":number,"instruction":string}]},"meals":[{"mealType":"Sarapan"|"Makan siang"|"Camilan"|"Makan malam","name":string,"description":string,"rationale":string,"prepMinutes":number,"servings":number,"nutrition":{"calories":number,"proteinGrams":number,"carbsGrams":number,"fatGrams":number,"fiberGrams":number},"ingredients":[{"amount":string,"name":string}],"cookingSteps":[string]}]}`;
-
-  try {
-    const aiResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model,
-        messages: [{ role: "user", content: prompt }],
-        response_format: { type: "json_object" },
-        temperature: 0.3,
-      }),
-    });
-    if (!aiResponse.ok) return null;
-    const payload = await aiResponse.json();
-    const content = payload?.choices?.[0]?.message?.content;
-    if (typeof content !== "string") return null;
-    return generatedPlanSchema.parse(JSON.parse(content));
-  } catch {
-    return null;
-  }
+async function tryAiPlan(
+  context: UserContext,
+  reason: GenerationReason,
+): Promise<ModelResult<GeneratedPlan>> {
+  const safeContext = {
+    currentProgram: context.profile,
+    recentWeights: context.weightLogs,
+    recentWeeklyGoals: context.weeklyGoals,
+    latestPackage: context.latestPackage,
+    latestExercises: context.latestExercises,
+  };
+  return callGroq(
+    generatedPlanSchema,
+    "sehatin_program",
+    [
+      {
+        role: "system",
+        content: "Kamu menyusun program Sehat.in dalam Bahasa Indonesia yang tenang, suportif, dan ramah pemula. Jangan memberi diagnosis, label kondisi medis, klaim terapi, atau mendorong perubahan ekstrem. Target penurunan mingguan wajib 0,5–1 kg. Latihan harus rendah risiko, progresif dalam kenaikan kecil, dan diperingan bila dua target mingguan berturut-turut gagal. Rekomendasi makanan harus realistis, menyebut perkiraan gizi per porsi, dan selalu terdiri dari Sarapan, Makan siang, Camilan, dan Makan malam.",
+      },
+      {
+        role: "user",
+        content: `Susun program untuk alasan ${reason} dari konteks minimum berikut: ${JSON.stringify(safeContext)}`,
+      },
+    ],
+    3000,
+  );
 }
 
 async function persistPlan(
@@ -419,11 +648,346 @@ async function persistPlan(
   return { packageId: packageResult.data.id, recommendationSetId: setResult.data.id, generatedByAi };
 }
 
-async function generateAndPersist(admin: ReturnType<typeof createAdminClient>, userId: string, reason: GenerationReason) {
-  const context = await loadContext(admin, userId);
-  const aiPlan = await tryAiPlan(context, reason);
-  const plan = aiPlan ?? fallbackPlan(context, reason);
-  return persistPlan(admin, userId, context, plan, Boolean(aiPlan), reason);
+async function generateAndPersist(
+  admin: ReturnType<typeof createAdminClient>,
+  userId: string,
+  reason: GenerationReason,
+  clientRequestId: string,
+) {
+  const claim = await claimAiRequest(admin, userId, "program", clientRequestId);
+  if (!claim.allowed || !claim.requestId) {
+    return { skipped: true, reason: claim.reason ?? "request_rejected", duplicate: claim.duplicate };
+  }
+
+  try {
+    const context = await loadContext(admin, userId);
+    const modelResult = await tryAiPlan(context, reason);
+    const plan = modelResult.ok ? modelResult.data : fallbackPlan(context, reason);
+    const persisted = await persistPlan(admin, userId, context, plan, modelResult.ok, reason);
+    await finishAiRequest(admin, userId, claim.requestId, {
+      status: "succeeded",
+      model: modelResult.model,
+      usedAi: modelResult.ok,
+      failureCode: modelResult.ok ? undefined : modelResult.code,
+    });
+    return {
+      ...persisted,
+      model: modelResult.model,
+      fallbackReason: modelResult.ok ? null : modelResult.code,
+    };
+  } catch (error) {
+    await finishAiRequest(admin, userId, claim.requestId, {
+      status: "failed",
+      failureCode: "program_generation_failed",
+    });
+    throw error;
+  }
+}
+
+function createEasierWorkout(context: ChatContext): GeneratedPlan["workout"] | null {
+  if (!context.activePackage || context.activeExercises.length < 3) return null;
+
+  const exercises = context.activeExercises.map((raw) => {
+    const mode = raw.mode === "timed" ? "timed" as const : "repetitions" as const;
+    const originalSets = Math.max(1, Number(raw.sets));
+    const sets = Math.max(1, originalSets - 1);
+    const repetitions = mode === "repetitions"
+      ? Math.max(1, Math.round(Number(raw.repetitions) * 0.8))
+      : null;
+    const durationSeconds = mode === "timed"
+      ? Math.max(10, Number(raw.duration_seconds) - 30)
+      : null;
+    return {
+      name: String(raw.name),
+      mode,
+      sets,
+      repetitions,
+      durationSeconds,
+      restSeconds: Math.min(600, Number(raw.rest_seconds) + 15),
+      instruction: String(raw.instruction),
+    };
+  });
+
+  return workoutSchema.parse({
+    name: `${String(context.activePackage.name)} - Versi Ringan`.slice(0, 120),
+    difficulty: "pemula",
+    purpose: "Menjaga ritme latihan hari ini dengan beban yang lebih ringan dan jeda lebih longgar.",
+    estimatedMinutes: Math.max(5, Number(context.activePackage.estimated_minutes) - 5),
+    exercises,
+  });
+}
+
+function fallbackChatReply(context: ChatContext, content: string): ChatReply {
+  const normalized = content.toLocaleLowerCase("id-ID");
+
+  if (/sakit|nyeri|pusing|sesak/.test(normalized)) {
+    return {
+      answer: "Hentikan gerakan yang memicu rasa sakit dan beri tubuhmu waktu untuk pulih. Aku tidak bisa menilai penyebabnya lewat chat. Bila keluhan menetap, memburuk, atau mengganggu aktivitas, sebaiknya bicara dengan tenaga kesehatan.",
+      adjustment: null,
+    };
+  }
+
+  if (/latihan/.test(normalized) && /berat|sulit|terlalu/.test(normalized)) {
+    const workout = createEasierWorkout(context);
+    if (workout) {
+      const changes = workout.exercises.slice(0, 10).map((exercise) =>
+        exercise.mode === "repetitions"
+          ? `${exercise.name}: ${exercise.sets} set × ${exercise.repetitions} repetisi`
+          : `${exercise.name}: ${exercise.sets} set × ${exercise.durationSeconds} detik`,
+      );
+      return {
+        answer: "Kita bisa membuat latihan hari ini lebih ringan. Aku menyiapkan usulan di bawah; paket aktifmu tetap sama sampai kamu mengonfirmasi.",
+        adjustment: {
+          title: "Usulan penyesuaian",
+          description: "Turunkan beban hari ini tanpa menghilangkan ritme latihanmu.",
+          changes,
+          workout,
+        },
+      };
+    }
+  }
+
+  if (/makan|lapar|kalori/.test(normalized)) {
+    return {
+      answer: "Pilih makanan yang terasa cukup, mudah disiapkan, dan sesuai preferensimu. Gunakan rekomendasi makanan terbaru sebagai titik awal, lalu sesuaikan bahan dengan alergi, kebutuhan, atau arahan tenaga profesional.",
+      adjustment: null,
+    };
+  }
+
+  if (/target|progres|minggu|berat/.test(normalized)) {
+    const currentWeight = Number(context.profile.current_weight_kg);
+    const weeklyTarget = Number(context.weeklyGoal?.target_weight_kg ?? currentWeight);
+    return {
+      answer: `Catatan terbarumu ${currentWeight.toLocaleString("id-ID", { maximumFractionDigits: 1 })} kg dan target minggu berjalan ${weeklyTarget.toLocaleString("id-ID", { maximumFractionDigits: 1 })} kg. Tidak perlu mengejar angka dengan perubahan ekstrem; lanjutkan ritme yang terasa sanggup dijaga.`,
+      adjustment: null,
+    };
+  }
+
+  return {
+    answer: "Aku sudah mencatat pertanyaanmu. Ceritakan apakah hal itu lebih berkaitan dengan latihan, makanan, atau progres mingguan agar jawabanku lebih terarah.",
+    adjustment: null,
+  };
+}
+
+async function tryAiChat(
+  context: ChatContext,
+  history: Array<{ role: "user" | "assistant"; content: string }>,
+): Promise<ModelResult<ChatReply>> {
+  const contextForModel = {
+    profile: context.profile,
+    recentWeights: context.weightLogs,
+    weeklyGoal: context.weeklyGoal,
+    streak: context.streak,
+    activePackage: context.activePackage,
+    activeExercises: context.activeExercises,
+  };
+
+  return callGroq(
+    chatReplySchema,
+    "sehatin_chat_reply",
+    [
+      {
+        role: "system",
+        content: `Kamu adalah Pendamping Sehat.in. Jawab dalam Bahasa Indonesia yang tenang, suportif, ringkas, dan ramah pemula. Gunakan hanya konteks minimum berikut: ${JSON.stringify(contextForModel)}. Jangan memberi diagnosis, label kondisi medis, klaim terapi, atau mendorong penurunan ekstrem. Untuk rasa sakit, pusing, atau sesak: sarankan menghentikan gerakan pemicu dan menghubungi tenaga kesehatan bila menetap, memburuk, atau mengganggu aktivitas. Jangan mengarang data yang tidak ada. Hanya isi adjustment bila pengguna secara eksplisit meminta latihan diperingan atau mengatakan paket aktif terlalu berat. Adjustment harus berupa versi aman dari paket aktif, mempertahankan 3–10 gerakan, dan tidak diterapkan sampai pengguna mengonfirmasi. Untuk pertanyaan lain, adjustment wajib null.`,
+      },
+      ...history,
+    ],
+    1200,
+  );
+}
+
+function mapStoredAssistant(row: Record<string, unknown>) {
+  const payload = row.adjustment_payload && typeof row.adjustment_payload === "object"
+    ? row.adjustment_payload as Record<string, unknown>
+    : null;
+  const changes = Array.isArray(payload?.changes)
+    ? payload.changes.filter((item): item is string => typeof item === "string")
+    : [];
+  const adjustment = row.kind === "adjustment" && payload
+    ? {
+        title: String(payload.title ?? "Usulan penyesuaian"),
+        description: String(payload.description ?? "Tinjau penyesuaian sebelum diterapkan."),
+        changes,
+        status: row.adjustment_status === "applied" || row.adjustment_status === "declined"
+          ? row.adjustment_status
+          : "pending",
+      }
+    : null;
+  return {
+    id: String(row.id),
+    content: String(row.content),
+    kind: row.kind === "adjustment" ? "adjustment" : "message",
+    generatedByAi: Boolean(row.generated_by_ai),
+    adjustment,
+    createdAt: String(row.created_at),
+  };
+}
+
+async function loadExistingChatResponse(
+  admin: ReturnType<typeof createAdminClient>,
+  userId: string,
+  clientMessageId: string,
+) {
+  const userMessageResult = await admin.database.from("chat_messages")
+    .select("id, session_id")
+    .eq("user_id", userId)
+    .eq("client_message_id", clientMessageId)
+    .maybeSingle();
+  if (userMessageResult.error) throw userMessageResult.error;
+  if (!userMessageResult.data) return null;
+
+  const assistantResult = await admin.database.from("chat_messages")
+    .select("id, content, kind, generated_by_ai, adjustment_payload, adjustment_status, created_at")
+    .eq("user_id", userId)
+    .eq("reply_to_message_id", userMessageResult.data.id)
+    .maybeSingle();
+  if (assistantResult.error) throw assistantResult.error;
+  if (!assistantResult.data) return null;
+  return {
+    sessionId: String(userMessageResult.data.session_id),
+    assistantMessage: mapStoredAssistant(assistantResult.data),
+  };
+}
+
+async function handleChatMessage(
+  admin: ReturnType<typeof createAdminClient>,
+  userId: string,
+  input: { sessionId: string | null; clientMessageId: string; content: string },
+) {
+  const claim = await claimAiRequest(admin, userId, "chat", input.clientMessageId);
+  if (!claim.allowed || !claim.requestId) {
+    if (claim.duplicate) {
+      const existing = await loadExistingChatResponse(admin, userId, input.clientMessageId);
+      if (existing) return existing;
+    }
+    throw new RequestRejectedError(429, claim.reason ?? "request_rejected");
+  }
+
+  try {
+    let sessionId = input.sessionId;
+    if (sessionId) {
+      const sessionResult = await admin.database.from("chat_sessions")
+        .select("id")
+        .eq("id", sessionId)
+        .eq("user_id", userId)
+        .maybeSingle();
+      if (sessionResult.error) throw sessionResult.error;
+      if (!sessionResult.data) throw new RequestRejectedError(404, "chat_session_not_found");
+    } else {
+      const sessionResult = await admin.database.from("chat_sessions")
+        .insert([{ user_id: userId }])
+        .select("id")
+        .single();
+      if (sessionResult.error || !sessionResult.data) {
+        throw sessionResult.error ?? new Error("Chat session insert failed");
+      }
+      sessionId = String(sessionResult.data.id);
+    }
+
+    const userMessageResult = await admin.database.from("chat_messages").insert([{
+      session_id: sessionId,
+      user_id: userId,
+      client_message_id: input.clientMessageId,
+      role: "user",
+      content: input.content,
+      kind: "message",
+      generated_by_ai: false,
+    }]).select("id").single();
+    if (userMessageResult.error || !userMessageResult.data) {
+      throw userMessageResult.error ?? new Error("Chat message insert failed");
+    }
+
+    const [context, historyResult] = await Promise.all([
+      loadChatContext(admin, userId),
+      admin.database.from("chat_messages")
+        .select("role, content, created_at")
+        .eq("session_id", sessionId)
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false })
+        .limit(12),
+    ]);
+    if (historyResult.error) throw historyResult.error;
+    const history = [...(historyResult.data ?? [])]
+      .reverse()
+      .flatMap((message): Array<{ role: "user" | "assistant"; content: string }> =>
+        message.role === "user" || message.role === "assistant"
+          ? [{ role: message.role, content: String(message.content) }]
+          : [],
+      );
+
+    const modelResult = await tryAiChat(context, history);
+    const fallback = fallbackChatReply(context, input.content);
+    const reply = modelResult.ok ? modelResult.data : fallback;
+    const validAdjustment = reply.adjustment && context.activePackage?.id
+      ? reply.adjustment
+      : null;
+    const adjustmentPayload = validAdjustment
+      ? {
+          basePackageId: String(context.activePackage?.id),
+          title: validAdjustment.title,
+          description: validAdjustment.description,
+          changes: validAdjustment.changes,
+          workout: validAdjustment.workout,
+        }
+      : null;
+
+    const assistantResult = await admin.database.from("chat_messages").insert([{
+      session_id: sessionId,
+      user_id: userId,
+      reply_to_message_id: userMessageResult.data.id,
+      role: "assistant",
+      content: reply.answer,
+      kind: adjustmentPayload ? "adjustment" : "message",
+      generated_by_ai: modelResult.ok,
+      model: modelResult.model,
+      prompt_tokens: modelResult.ok ? modelResult.promptTokens : null,
+      completion_tokens: modelResult.ok ? modelResult.completionTokens : null,
+      adjustment_payload: adjustmentPayload,
+      adjustment_status: adjustmentPayload ? "pending" : "none",
+    }]).select("id, content, kind, generated_by_ai, adjustment_payload, adjustment_status, created_at").single();
+    if (assistantResult.error || !assistantResult.data) {
+      throw assistantResult.error ?? new Error("Assistant message insert failed");
+    }
+
+    const sessionUpdate = await admin.database.from("chat_sessions")
+      .update({ updated_at: new Date().toISOString() })
+      .eq("id", sessionId)
+      .eq("user_id", userId);
+    if (sessionUpdate.error) throw sessionUpdate.error;
+
+    await finishAiRequest(admin, userId, claim.requestId, {
+      status: "succeeded",
+      model: modelResult.model,
+      usedAi: modelResult.ok,
+      failureCode: modelResult.ok ? undefined : modelResult.code,
+    });
+
+    return {
+      sessionId,
+      assistantMessage: mapStoredAssistant(assistantResult.data),
+    };
+  } catch (error) {
+    await finishAiRequest(admin, userId, claim.requestId, {
+      status: "failed",
+      failureCode: error instanceof RequestRejectedError ? error.code : "chat_request_failed",
+    });
+    throw error;
+  }
+}
+
+async function resolveChatAdjustment(
+  admin: ReturnType<typeof createAdminClient>,
+  userId: string,
+  messageId: string,
+  decision: "apply" | "decline",
+) {
+  const result = await admin.database.rpc("edge_resolve_chat_adjustment", {
+    p_user_id: userId,
+    p_message_id: messageId,
+    p_decision: decision,
+  });
+  if (result.error) throw result.error;
+  return result.data;
 }
 
 export default async function handler(req: Request): Promise<Response> {
@@ -443,7 +1007,7 @@ export default async function handler(req: Request): Promise<Response> {
     if (userResult.error || !userId) return response({ error: "Unauthorized" }, 401);
 
     const parsed = requestSchema.safeParse(await req.json().catch(() => null));
-    if (!parsed.success) return response({ error: "Invalid request", issues: parsed.error.issues }, 400);
+    if (!parsed.success) return response({ error: "Invalid request" }, 400);
     const admin = createAdminClient({ baseUrl, apiKey });
 
     if (parsed.data.action === "complete-onboarding") {
@@ -463,12 +1027,22 @@ export default async function handler(req: Request): Promise<Response> {
         p_time_zone: parsed.data.timeZone,
       });
       if (onboardingResult.error) throw onboardingResult.error;
-      const generation = await generateAndPersist(admin, userId, "onboarding");
+      const generation = await generateAndPersist(
+        admin,
+        userId,
+        "onboarding",
+        parsed.data.requestId ?? crypto.randomUUID(),
+      );
       return response({ ok: true, result: onboardingResult.data, generation });
     }
 
     if (parsed.data.action === "generate-plan") {
-      const generation = await generateAndPersist(admin, userId, parsed.data.reason);
+      const generation = await generateAndPersist(
+        admin,
+        userId,
+        parsed.data.reason,
+        parsed.data.requestId ?? crypto.randomUUID(),
+      );
       return response({ ok: true, generation });
     }
 
@@ -480,8 +1054,30 @@ export default async function handler(req: Request): Promise<Response> {
       });
       if (rpcResult.error) throw rpcResult.error;
       const shouldRecalibrate = Boolean((rpcResult.data as { shouldRecalibrate?: boolean } | null)?.shouldRecalibrate);
-      const generation = shouldRecalibrate ? await generateAndPersist(admin, userId, "weight-update") : null;
+      const generation = shouldRecalibrate
+        ? await generateAndPersist(
+            admin,
+            userId,
+            "weight-update",
+            parsed.data.requestId ?? crypto.randomUUID(),
+          )
+        : null;
       return response({ ok: true, result: rpcResult.data, generation });
+    }
+
+    if (parsed.data.action === "chat-message") {
+      const chat = await handleChatMessage(admin, userId, parsed.data);
+      return response({ ok: true, ...chat });
+    }
+
+    if (parsed.data.action === "resolve-chat-adjustment") {
+      const resolution = await resolveChatAdjustment(
+        admin,
+        userId,
+        parsed.data.messageId,
+        parsed.data.decision,
+      );
+      return response({ ok: true, ...(resolution as Record<string, unknown>) });
     }
 
     const rpcResult = await admin.database.rpc("edge_complete_workout_session", {
@@ -501,10 +1097,20 @@ export default async function handler(req: Request): Promise<Response> {
     });
     if (rpcResult.error) throw rpcResult.error;
     const duplicate = Boolean((rpcResult.data as { duplicate?: boolean } | null)?.duplicate);
-    const generation = duplicate ? null : await generateAndPersist(admin, userId, "workout-complete");
+    const generation = duplicate
+      ? null
+      : await generateAndPersist(
+          admin,
+          userId,
+          "workout-complete",
+          parsed.data.clientCompletionId,
+        );
     return response({ ok: true, result: rpcResult.data, generation });
   } catch (error) {
     console.error("sehatin-program failed", error);
-    return response({ error: error instanceof Error ? error.message : "Unexpected backend error" }, 500);
+    if (error instanceof RequestRejectedError) {
+      return response({ error: "Request could not be processed", code: error.code }, error.status);
+    }
+    return response({ error: "Backend request failed" }, 500);
   }
 }
