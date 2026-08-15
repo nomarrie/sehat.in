@@ -39,7 +39,7 @@ export async function saveSettingsAction(_state: SettingsActionState, formData: 
 
   if (Number(currentResult.data.current_weight_kg) !== parsed.data.currentWeightKg) {
     const weightResult = await client.functions.invoke("sehatin-program", { body: {
-      action: "record-weight", weightKg: parsed.data.currentWeightKg,
+      action: "record-weight", requestId: crypto.randomUUID(), weightKg: parsed.data.currentWeightKg,
       loggedOn: getDateInTimeZone(String(currentResult.data.time_zone)),
     } });
     if (weightResult.error) return { ok: false, message: "Data profil tersimpan, tetapi pencatatan berat terbaru belum berhasil. Coba simpan kembali." };

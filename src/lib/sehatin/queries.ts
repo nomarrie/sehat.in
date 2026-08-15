@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { DashboardData } from "@/features/dashboard/dashboard.types";
+import type { ChatMessage, ChatPageData, WorkoutAdjustment } from "@/features/chat/chat.types";
 import type { FoodRecommendation, FoodRecommendationContext } from "@/features/food/food.types";
 import type { ProfileSettings } from "@/features/settings/settings.types";
 import type { ExercisePackage } from "@/features/workouts/workout.types";
@@ -178,4 +179,166 @@ export async function loadFoodRecommendations(): Promise<{ context: FoodRecommen
 export async function loadFoodRecommendation(id: string) {
   const data = await loadFoodRecommendations();
   return data.recommendations.find((recommendation) => recommendation.id === id);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function mapChatAdjustment(
+  payload: unknown,
+  status: unknown,
+): WorkoutAdjustment | undefined {
+  if (!isRecord(payload)) return undefined;
+  const changes = Array.isArray(payload.changes)
+    ? payload.changes.filter((item): item is string => typeof item === "string")
+    : [];
+  if (
+    typeof payload.title !== "string"
+    || typeof payload.description !== "string"
+    || changes.length === 0
+  ) {
+    return undefined;
+  }
+
+  return {
+    title: payload.title,
+    description: payload.description,
+    changes,
+    status: status === "applied" || status === "declined" ? status : "pending",
+  };
+}
+
+export async function loadChatPageData(): Promise<ChatPageData> {
+  const { client, user } = await requireOnboardedUser();
+  const profileResult = await client.database
+    .from("profiles")
+    .select("full_name, current_weight_kg, time_zone")
+    .eq("user_id", user.id)
+    .single();
+  assertNoError(profileResult.error, "Gagal memuat konteks chat");
+  const profile = profileResult.data as {
+    full_name: string;
+    current_weight_kg: string | number;
+    time_zone: string;
+  };
+  const today = getDateInTimeZone(profile.time_zone);
+
+  const [logsResult, streakResult, sessionsResult, workoutPackage, sessionResult] = await Promise.all([
+    client.database
+      .from("weight_logs")
+      .select("weight_kg, logged_on")
+      .order("logged_on", { ascending: false })
+      .limit(2),
+    client.database
+      .from("streaks")
+      .select("current_streak")
+      .eq("user_id", user.id)
+      .maybeSingle(),
+    client.database
+      .from("exercise_sessions")
+      .select("active_duration_seconds")
+      .eq("activity_date", today)
+      .limit(50),
+    loadPackageWithClient(client),
+    client.database
+      .from("chat_sessions")
+      .select("id")
+      .eq("user_id", user.id)
+      .order("updated_at", { ascending: false })
+      .limit(1),
+  ]);
+  [logsResult, streakResult, sessionsResult, sessionResult].forEach((result, index) => {
+    assertNoError(result.error, `Gagal memuat konteks chat (${index + 1})`);
+  });
+
+  const sessionId = sessionResult.data?.[0]?.id
+    ? String(sessionResult.data[0].id)
+    : null;
+  let messages: ChatMessage[] = [];
+
+  if (sessionId) {
+    const messageResult = await client.database
+      .from("chat_messages")
+      .select("id, role, content, kind, generated_by_ai, adjustment_payload, adjustment_status, created_at")
+      .eq("session_id", sessionId)
+      .order("created_at", { ascending: true })
+      .limit(100);
+    assertNoError(messageResult.error, "Gagal memuat riwayat chat");
+    const timeFormatter = new Intl.DateTimeFormat("id-ID", {
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZone: profile.time_zone,
+    });
+    messages = (messageResult.data ?? []).flatMap((row): ChatMessage[] => {
+      if (row.role !== "assistant" && row.role !== "user") return [];
+      const kind = row.kind === "adjustment" ? "adjustment" : "message";
+      return [{
+        id: String(row.id),
+        role: row.role,
+        content: String(row.content),
+        timeLabel: timeFormatter.format(new Date(String(row.created_at))),
+        kind,
+        generatedByAi: Boolean(row.generated_by_ai),
+        adjustment: kind === "adjustment"
+          ? mapChatAdjustment(row.adjustment_payload, row.adjustment_status)
+          : undefined,
+      }];
+    });
+  }
+
+  if (messages.length === 0) {
+    const firstName = profile.full_name.trim().split(/\s+/)[0] || "teman";
+    messages = [{
+      id: "assistant-welcome",
+      role: "assistant",
+      content: `Halo, ${firstName}. Aku sudah melihat konteks program terbarumu. Mau membahas latihan, makanan, atau progresmu?`,
+      timeLabel: "Sekarang",
+      kind: "message",
+      generatedByAi: false,
+    }];
+  }
+
+  const logs = logsResult.data ?? [];
+  const currentWeight = Number(profile.current_weight_kg);
+  const previousWeight = logs[1] ? Number(logs[1].weight_kg) : null;
+  const change = previousWeight === null ? null : previousWeight - currentWeight;
+  const weightDetail = change === null
+    ? "Catatan terbaru programmu"
+    : change > 0
+      ? `Turun ${change.toLocaleString("id-ID", { maximumFractionDigits: 1 })} kg dari catatan sebelumnya`
+      : change < 0
+        ? `Berubah ${Math.abs(change).toLocaleString("id-ID", { maximumFractionDigits: 1 })} kg dari catatan sebelumnya`
+        : "Stabil dari catatan sebelumnya";
+  const activeMinutes = Math.floor((sessionsResult.data ?? []).reduce(
+    (total, row) => total + Number(row.active_duration_seconds),
+    0,
+  ) / 60);
+
+  return {
+    sessionId,
+    context: [
+      {
+        id: "weight",
+        label: "Berat saat ini",
+        value: `${currentWeight.toLocaleString("id-ID", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} kg`,
+        detail: weightDetail,
+      },
+      {
+        id: "streak",
+        label: "Streak aktif",
+        value: `${Number(streakResult.data?.current_streak ?? 0)} hari`,
+        detail: `${activeMinutes} dari 30 menit hari ini`,
+      },
+      {
+        id: "workout",
+        label: "Paket aktif",
+        value: workoutPackage?.name ?? "Belum ada paket aktif",
+        detail: workoutPackage
+          ? `${workoutPackage.difficulty} · sekitar ${workoutPackage.estimatedMinutes} menit`
+          : "Program berikutnya akan muncul di sini",
+      },
+    ],
+    messages,
+  };
 }
