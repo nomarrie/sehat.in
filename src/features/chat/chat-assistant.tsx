@@ -2,107 +2,99 @@
 
 import { ArrowLeftIcon } from "@phosphor-icons/react/dist/ssr/ArrowLeft";
 import { ChatCircleDotsIcon } from "@phosphor-icons/react/dist/ssr/ChatCircleDots";
+import { ChatsCircleIcon } from "@phosphor-icons/react/dist/ssr/ChatsCircle";
 import { HeartbeatIcon } from "@phosphor-icons/react/dist/ssr/Heartbeat";
 import { PaperPlaneTiltIcon } from "@phosphor-icons/react/dist/ssr/PaperPlaneTilt";
-import { ChatsCircleIcon } from "@phosphor-icons/react/dist/ssr/ChatsCircle";
 import { PlusIcon } from "@phosphor-icons/react/dist/ssr/Plus";
 import { ShieldCheckIcon } from "@phosphor-icons/react/dist/ssr/ShieldCheck";
 import { SparkleIcon } from "@phosphor-icons/react/dist/ssr/Sparkle";
 import Link from "next/link";
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import {
-  chatThreads,
-  initialChatMessages,
-  quickPrompts,
-  suggestedWorkoutAdjustment,
-} from "@/data/chat-data";
-import type { ChatMessage } from "./chat.types";
+  useEffect,
+  useRef,
+  useState,
+  useTransition,
+  type FormEvent,
+  type KeyboardEvent,
+} from "react";
+import { quickPrompts } from "@/data/chat-data";
+import {
+  resolveWorkoutAdjustmentAction,
+  sendChatMessageAction,
+} from "./actions";
+import type { ChatMessage, ChatPageData } from "./chat.types";
 
-
-function getDummyReply(message: string): Pick<ChatMessage, "content" | "kind"> {
-  const normalized = message.toLocaleLowerCase("id-ID");
-
-  if (/sakit|nyeri|pusing|sesak/.test(normalized)) {
-    return {
-      content:
-        "Hentikan gerakan yang memicu rasa sakit dan beri tubuhmu waktu untuk pulih. Aku tidak bisa menilai penyebabnya lewat chat; bila rasa sakit menetap, memburuk, atau mengganggu aktivitas, sebaiknya bicara dengan tenaga kesehatan.",
-      kind: "message",
-    };
-  }
-
-  if (/latihan/.test(normalized) && /berat|sulit|terlalu/.test(normalized)) {
-    return {
-      content:
-        "Kita bisa membuat latihan hari ini lebih ringan. Aku menyiapkan usulan di bawah; paket aktifmu tetap sama sampai kamu mengonfirmasi.",
-      kind: "adjustment",
-    };
-  }
-
-  if (/target|progres|minggu/.test(normalized)) {
-    return {
-      content:
-        "Target mingguanmu masih berada di rentang yang terarah. Beratmu turun 0,5 kg dari awal minggu dan hanya berjarak 0,1 kg dari target 88,6 kg. Tidak perlu mengejar angka itu dengan perubahan ekstrem—lanjutkan ritme makan dan aktivitas yang terasa sanggup dijaga.",
-      kind: "message",
-    };
-  }
-
-  if (/makan|lapar|kalori/.test(normalized)) {
-    return {
-      content:
-        "Setelah latihan, pilih makan yang terasa cukup dan mudah dibuat. Oat pisang dengan yogurt bisa memberi karbohidrat dan protein, atau nasi hangat dengan ayam panggang serta sayur bila kamu ingin makanan utama.",
-      kind: "message",
-    };
-  }
-
-  return {
-    content:
-      "Aku sudah mencatat pertanyaanmu. Untuk sesi demo ini, coba ceritakan apakah hal tersebut lebih berkaitan dengan latihan, makanan, atau progres mingguan agar jawabanku lebih terarah.",
-    kind: "message",
-  };
-}
-
-export function ChatAssistant() {
-  const [messages, setMessages] = useState(initialChatMessages);
+export function ChatAssistant({ initialData }: { initialData: ChatPageData }) {
+  const [messages, setMessages] = useState(initialData.messages);
+  const [sessionId, setSessionId] = useState(initialData.sessionId);
   const [draft, setDraft] = useState("");
-  const [adjustmentStatus, setAdjustmentStatus] = useState<"idle" | "applied" | "kept">(
-    "idle",
-  );
-  const [activeThreadId, setActiveThreadId] = useState(chatThreads[0]?.id ?? "");
-  const messageSequence = useRef(initialChatMessages.length);
+  const [requestError, setRequestError] = useState<string | null>(null);
+  const [activeThreadId, setActiveThreadId] = useState("current");
+  const [isPending, startTransition] = useTransition();
   const scrollAnchor = useRef<HTMLLIElement>(null);
 
   useEffect(() => {
     if (typeof scrollAnchor.current?.scrollIntoView === "function") {
       scrollAnchor.current.scrollIntoView({ block: "end" });
     }
-  }, [messages, adjustmentStatus]);
+  }, [messages, requestError]);
 
   function sendMessage(content: string) {
     const cleanMessage = content.trim();
-    if (!cleanMessage) return;
+    if (!cleanMessage || isPending) return;
 
-    const sequence = messageSequence.current;
-    messageSequence.current += 2;
-    const reply = getDummyReply(cleanMessage);
+    const clientMessageId = crypto.randomUUID();
+    const userMessage: ChatMessage = {
+      id: `user-${clientMessageId}`,
+      role: "user",
+      content: cleanMessage,
+      timeLabel: "Sekarang",
+      kind: "message",
+      generatedByAi: false,
+    };
 
-    setMessages((current) => [
-      ...current,
-      {
-        id: `user-${sequence}`,
-        role: "user",
-        content: cleanMessage,
-        timeLabel: "Sekarang",
-        kind: "message",
-      },
-      {
-        id: `assistant-${sequence + 1}`,
-        role: "assistant",
-        content: reply.content,
-        timeLabel: "Sekarang",
-        kind: reply.kind,
-      },
-    ]);
+    setActiveThreadId("current");
+    setMessages((current) => [...current, userMessage]);
     setDraft("");
+    setRequestError(null);
+
+    startTransition(async () => {
+      const result = await sendChatMessageAction({
+        sessionId,
+        clientMessageId,
+        content: cleanMessage,
+      });
+
+      if (!result.ok) {
+        setRequestError(result.message);
+        return;
+      }
+
+      setSessionId(result.sessionId);
+      setMessages((current) => [...current, result.assistantMessage]);
+    });
+  }
+
+  function resolveAdjustment(messageId: string, decision: "apply" | "decline") {
+    if (isPending) return;
+    setRequestError(null);
+
+    startTransition(async () => {
+      const result = await resolveWorkoutAdjustmentAction({ messageId, decision });
+      if (!result.ok) {
+        setRequestError(result.message);
+        return;
+      }
+
+      setMessages((current) => current.map((message) =>
+        message.id === messageId && message.adjustment
+          ? {
+              ...message,
+              adjustment: { ...message.adjustment, status: result.status },
+            }
+          : message,
+      ));
+    });
   }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -117,26 +109,20 @@ export function ChatAssistant() {
     }
   }
 
-  function choosePrompt(prompt: string) {
-    setAdjustmentStatus("idle");
-    sendMessage(prompt);
-  }
-
   function startNewConversation() {
     setMessages([]);
+    setSessionId(null);
     setDraft("");
-    setAdjustmentStatus("idle");
+    setRequestError(null);
     setActiveThreadId("");
   }
 
-  function selectThread(threadId: string) {
-    const thread = chatThreads.find((item) => item.id === threadId);
-    if (!thread) return;
-
-    setMessages(thread.messages);
+  function restoreLatestConversation() {
+    setMessages(initialData.messages);
+    setSessionId(initialData.sessionId);
     setDraft("");
-    setAdjustmentStatus("idle");
-    setActiveThreadId(thread.id);
+    setRequestError(null);
+    setActiveThreadId("current");
   }
 
   return (
@@ -168,12 +154,17 @@ export function ChatAssistant() {
           </div>
         </div>
 
-        <span className="chat-demo-badge">Mode demo</span>
+        <span className="chat-demo-badge">Percakapan privat</span>
       </header>
 
       <main id="chat-conversation" className="chat-workspace" tabIndex={-1}>
         <aside className="chat-sidebar" aria-label="Riwayat percakapan">
-          <button className="chat-new-thread" type="button" onClick={startNewConversation}>
+          <button
+            className="chat-new-thread"
+            type="button"
+            disabled={isPending}
+            onClick={startNewConversation}
+          >
             <PlusIcon size={18} weight="bold" aria-hidden="true" />
             <span>Percakapan baru</span>
           </button>
@@ -181,27 +172,25 @@ export function ChatAssistant() {
           <nav className="chat-thread-navigation" aria-labelledby="chat-thread-title">
             <h2 id="chat-thread-title">Percakapan</h2>
             <ul className="chat-thread-list" role="list">
-              {chatThreads.map((thread) => {
-                const isActive = activeThreadId === thread.id;
-
-                return (
-                  <li key={thread.id}>
-                    <button
-                      className={isActive ? "is-active" : undefined}
-                      type="button"
-                      aria-pressed={isActive}
-                      onClick={() => selectThread(thread.id)}
-                    >
-                      <ChatsCircleIcon size={18} weight={isActive ? "fill" : "regular"} aria-hidden="true" />
-                      <span>
-                        <strong>{thread.title}</strong>
-                        <small>{thread.preview}</small>
-                      </span>
-                      <time>{thread.timeLabel}</time>
-                    </button>
-                  </li>
-                );
-              })}
+              <li>
+                <button
+                  className={activeThreadId === "current" ? "is-active" : undefined}
+                  type="button"
+                  aria-pressed={activeThreadId === "current"}
+                  onClick={restoreLatestConversation}
+                >
+                  <ChatsCircleIcon
+                    size={18}
+                    weight={activeThreadId === "current" ? "fill" : "regular"}
+                    aria-hidden="true"
+                  />
+                  <span>
+                    <strong>Progres minggu ini</strong>
+                    <small>Latihan, makanan, dan progres terbarumu</small>
+                  </span>
+                  <time>Hari ini</time>
+                </button>
+              </li>
             </ul>
           </nav>
 
@@ -214,7 +203,11 @@ export function ChatAssistant() {
           </div>
         </aside>
 
-        <section className="chat-panel" aria-label="Percakapan dengan pendamping Sehat.in">
+        <section
+          className="chat-panel"
+          aria-label="Percakapan dengan pendamping Sehat.in"
+          aria-busy={isPending}
+        >
           <ol className="chat-feed" aria-label="Percakapan" aria-live="polite">
             {messages.length === 0 ? (
               <li className="chat-empty-state">
@@ -236,42 +229,46 @@ export function ChatAssistant() {
                 ) : null}
                 <div className="chat-message-content">
                   <p>{message.content}</p>
-                  {message.kind === "adjustment" ? (
+                  {message.kind === "adjustment" && message.adjustment ? (
                     <section className="chat-adjustment-card" aria-labelledby={`${message.id}-title`}>
                       <div>
                         <p className="module-kicker">Perlu persetujuanmu</p>
-                        <h3 id={`${message.id}-title`}>{suggestedWorkoutAdjustment.title}</h3>
-                        <p>{suggestedWorkoutAdjustment.description}</p>
+                        <h3 id={`${message.id}-title`}>{message.adjustment.title}</h3>
+                        <p>{message.adjustment.description}</p>
                       </div>
                       <ul>
-                        {suggestedWorkoutAdjustment.changes.map((change) => (
+                        {message.adjustment.changes.map((change) => (
                           <li key={change}>{change}</li>
                         ))}
                       </ul>
-                      <p className="chat-adjustment-note">Usulan ini belum mengubah paket latihanmu.</p>
+                      {message.adjustment.status === "pending" ? (
+                        <p className="chat-adjustment-note">Usulan ini belum mengubah paket latihanmu.</p>
+                      ) : null}
                       <div className="chat-adjustment-actions">
                         <button
                           className="button button-primary"
                           type="button"
-                          disabled={adjustmentStatus !== "idle"}
-                          onClick={() => setAdjustmentStatus("applied")}
+                          disabled={message.adjustment.status !== "pending" || isPending}
+                          onClick={() => resolveAdjustment(message.id, "apply")}
                         >
-                          {adjustmentStatus === "applied" ? "Sudah diterapkan" : "Terapkan untuk demo"}
+                          {message.adjustment.status === "applied"
+                            ? "Sudah diterapkan"
+                            : "Terapkan penyesuaian"}
                         </button>
                         <button
                           className="button button-secondary"
                           type="button"
-                          disabled={adjustmentStatus !== "idle"}
-                          onClick={() => setAdjustmentStatus("kept")}
+                          disabled={message.adjustment.status !== "pending" || isPending}
+                          onClick={() => resolveAdjustment(message.id, "decline")}
                         >
                           Pertahankan latihan
                         </button>
                       </div>
-                      {adjustmentStatus !== "idle" ? (
+                      {message.adjustment.status !== "pending" ? (
                         <p className="chat-adjustment-status" role="status">
-                          {adjustmentStatus === "applied"
-                            ? "Penyesuaian diterapkan untuk sesi demo ini."
-                            : "Paket latihan tetap seperti semula untuk sesi demo ini."}
+                          {message.adjustment.status === "applied"
+                            ? "Paket latihan sudah disesuaikan."
+                            : "Paket latihan tetap seperti semula."}
                         </p>
                       ) : null}
                     </section>
@@ -286,7 +283,12 @@ export function ChatAssistant() {
           <div className="chat-input-area">
             <div className="chat-quick-prompts" aria-label="Saran pertanyaan">
               {quickPrompts.map((prompt) => (
-                <button key={prompt.id} type="button" onClick={() => choosePrompt(prompt.label)}>
+                <button
+                  key={prompt.id}
+                  type="button"
+                  disabled={isPending}
+                  onClick={() => sendMessage(prompt.label)}
+                >
                   {prompt.label}
                 </button>
               ))}
@@ -304,12 +306,14 @@ export function ChatAssistant() {
                 onKeyDown={handleComposerKeyDown}
                 rows={1}
                 maxLength={500}
+                disabled={isPending}
                 placeholder="Tulis pertanyaanmu di sini…"
               />
-              <button type="submit" aria-label="Kirim pesan" disabled={!draft.trim()}>
+              <button type="submit" aria-label="Kirim pesan" disabled={isPending || !draft.trim()}>
                 <PaperPlaneTiltIcon size={21} weight="fill" aria-hidden="true" />
               </button>
             </form>
+            {requestError ? <p className="chat-request-error" role="alert">{requestError}</p> : null}
             <p className="chat-composer-hint">Enter untuk kirim · Shift + Enter untuk baris baru</p>
           </div>
         </section>

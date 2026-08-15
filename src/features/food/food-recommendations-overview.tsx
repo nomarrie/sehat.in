@@ -83,7 +83,7 @@ export function FoodRecommendationsOverview({
         <p>
           {context.generatedByAi
             ? "Rencana ini disusun dari progres terbarumu dan tetap perlu disesuaikan dengan alergi atau arahan tenaga profesional."
-            : "AI Gateway belum tersedia, jadi Sehat.in memakai rencana terkurasi yang mengikuti preferensi dan batas aman programmu."}
+            : "Groq belum tersedia, jadi Sehat.in memakai rencana terkurasi yang mengikuti preferensi dan batas aman programmu."}
         </p>
       </aside>
     </div>

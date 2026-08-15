@@ -81,6 +81,7 @@ export async function completeOnboardingAction(_state: AuthFormState, formData: 
   const client = await createInsForgeServerClient();
   const onboarding = await client.functions.invoke("sehatin-program", { body: {
     action: "complete-onboarding",
+    requestId: crypto.randomUUID(),
     fullName: parsed.data.fullName,
     age: parsed.data.age,
     heightCm: parsed.data.heightCm,

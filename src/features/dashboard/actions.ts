@@ -12,7 +12,12 @@ export async function recordWeightAction(input: { date: string; weight: number }
   if (!parsed.success) return { ok: false as const, message: "Catatan berat belum valid." };
   const client = await createInsForgeServerClient();
   const result = await client.functions.invoke("sehatin-program", {
-    body: { action: "record-weight", weightKg: parsed.data.weight, loggedOn: parsed.data.date },
+    body: {
+      action: "record-weight",
+      requestId: crypto.randomUUID(),
+      weightKg: parsed.data.weight,
+      loggedOn: parsed.data.date,
+    },
   });
   if (result.error) return { ok: false as const, message: getBackendErrorMessage(result.error, "Catatan belum dapat disimpan.") };
   revalidatePath("/dashboard");

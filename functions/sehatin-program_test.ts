@@ -1,8 +1,6 @@
 import {
   buildAiContext,
-  buildOpenRouterRequest,
   default as handler,
-  parseAllowedProviders,
   redactSensitiveText,
   type UserContext,
 } from "./sehatin-program.ts";
@@ -80,21 +78,6 @@ Deno.test("AI context contains only the program attributes needed for generation
       }],
     },
   });
-});
-
-Deno.test("OpenRouter request enforces ZDR, no data collection, and an explicit provider allowlist", () => {
-  const providers = parseAllowedProviders("azure, openai,azure");
-  assertEquals(providers, ["azure", "openai"]);
-  assertEquals(parseAllowedProviders(""), null);
-  assertEquals(parseAllowedProviders("azure,invalid provider"), null);
-
-  const request = buildOpenRouterRequest("model/example", "prompt", providers!);
-  assertEquals(request.provider, {
-    only: ["azure", "openai"],
-    zdr: true,
-    data_collection: "deny",
-  });
-  assertEquals(request.max_completion_tokens, 3000);
 });
 
 Deno.test("log redaction removes common credentials and direct identifiers", () => {
