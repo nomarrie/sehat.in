@@ -9,6 +9,7 @@ const shortPackage: ExercisePackage = {
   id: "test-package",
   name: "Sesi Uji",
   dayLabel: "Hari ini",
+  generatedByAi: false,
   difficulty: "Pemula",
   purpose: "Menguji alur sesi.",
   estimatedMinutes: 1,

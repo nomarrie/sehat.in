@@ -20,7 +20,7 @@ import {
 import ReactMarkdown, { type Components } from "react-markdown";
 import { quickPrompts } from "@/data/chat-data";
 import {
-  resolveWorkoutAdjustmentAction,
+  resolveChatAdjustmentAction,
   sendChatMessageAction,
 } from "./actions";
 import type { ChatMessage, ChatPageData } from "./chat.types";
@@ -90,7 +90,7 @@ export function ChatAssistant({ initialData }: { initialData: ChatPageData }) {
     setRequestError(null);
 
     startTransition(async () => {
-      const result = await resolveWorkoutAdjustmentAction({ messageId, decision });
+      const result = await resolveChatAdjustmentAction({ messageId, decision });
       if (!result.ok) {
         setRequestError(result.message);
         return;
@@ -254,13 +254,35 @@ export function ChatAssistant({ initialData }: { initialData: ChatPageData }) {
                         <h3 id={`${message.id}-title`}>{message.adjustment.title}</h3>
                         <p>{message.adjustment.description}</p>
                       </div>
-                      <ul>
-                        {message.adjustment.changes.map((change) => (
-                          <li key={change}>{change}</li>
-                        ))}
-                      </ul>
+                      <div className="chat-adjustment-table-wrap">
+                        <table className="chat-adjustment-table">
+                          <caption className="visually-hidden">
+                            Perbandingan penyesuaian {message.adjustment.target === "food" ? "makanan" : "latihan"}
+                          </caption>
+                          <thead>
+                            <tr>
+                              <th scope="col">Bagian</th>
+                              <th scope="col">Saat ini</th>
+                              <th scope="col">Usulan</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {message.adjustment.rows.map((row, index) => (
+                              <tr key={`${row.label}-${index}`}>
+                                <th scope="row">{row.label}</th>
+                                <td>{row.before}</td>
+                                <td>{row.after}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
                       {message.adjustment.status === "pending" ? (
-                        <p className="chat-adjustment-note">Usulan ini belum mengubah paket latihanmu.</p>
+                        <p className="chat-adjustment-note">
+                          {message.adjustment.target === "food"
+                            ? "Usulan ini belum mengubah rekomendasi makananmu."
+                            : "Usulan ini belum mengubah paket latihanmu."}
+                        </p>
                       ) : null}
                       <div className="chat-adjustment-actions">
                         <button
@@ -279,14 +301,18 @@ export function ChatAssistant({ initialData }: { initialData: ChatPageData }) {
                           disabled={message.adjustment.status !== "pending" || isPending}
                           onClick={() => resolveAdjustment(message.id, "decline")}
                         >
-                          Pertahankan latihan
+                          {message.adjustment.target === "food" ? "Pertahankan menu" : "Pertahankan latihan"}
                         </button>
                       </div>
                       {message.adjustment.status !== "pending" ? (
                         <p className="chat-adjustment-status" role="status">
                           {message.adjustment.status === "applied"
-                            ? "Paket latihan sudah disesuaikan."
-                            : "Paket latihan tetap seperti semula."}
+                            ? message.adjustment.target === "food"
+                              ? "Rekomendasi makanan sudah disesuaikan."
+                              : "Paket latihan sudah disesuaikan."
+                            : message.adjustment.target === "food"
+                              ? "Rekomendasi makanan tetap seperti semula."
+                              : "Paket latihan tetap seperti semula."}
                         </p>
                       ) : null}
                     </section>

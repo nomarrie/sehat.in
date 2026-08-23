@@ -5,13 +5,20 @@ export type ChatMessage = {
   timeLabel: string;
   kind?: "message" | "adjustment";
   generatedByAi: boolean;
-  adjustment?: WorkoutAdjustment;
+  adjustment?: ChatAdjustment;
 };
 
-export type WorkoutAdjustment = {
+export type ChatAdjustmentRow = {
+  label: string;
+  before: string;
+  after: string;
+};
+
+export type ChatAdjustment = {
+  target: "workout" | "food";
   title: string;
   description: string;
-  changes: string[];
+  rows: ChatAdjustmentRow[];
   status: "pending" | "applied" | "declined";
 };
 

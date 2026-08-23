@@ -1,6 +1,8 @@
 import {
   buildAiContext,
   default as handler,
+  deriveWorkoutAdaptation,
+  normalizeProgramRequestBody,
   redactSensitiveText,
   type UserContext,
 } from "./sehatin-program.ts";
@@ -46,6 +48,7 @@ Deno.test("AI context contains only the program attributes needed for generation
       scheduled_for: "2026-08-14",
     },
     latestExercises: [{
+      id: "5f74f840-0f7b-4191-b741-7fd24db241b3",
       name: "Jalan di Tempat",
       mode: "timed",
       sets: 1,
@@ -55,6 +58,17 @@ Deno.test("AI context contains only the program attributes needed for generation
       instruction: "Jaga langkah tetap ringan.",
       order_index: 1,
     }],
+    latestWorkoutResult: {
+      activeDurationSeconds: 300,
+      completedAt: "2026-08-14T08:00:00.000Z",
+      exercises: [{
+        subExerciseId: "5f74f840-0f7b-4191-b741-7fd24db241b3",
+        completedSets: 1,
+        completedRepetitions: null,
+        activeDurationSeconds: 300,
+        completed: true,
+      }],
+    },
   };
 
   assertEquals(buildAiContext(context), {
@@ -77,6 +91,71 @@ Deno.test("AI context contains only the program attributes needed for generation
         instruction: "Jaga langkah tetap ringan.",
       }],
     },
+    latestWorkoutResult: {
+      activeDurationSeconds: 300,
+      completedAt: "2026-08-14T08:00:00.000Z",
+      exercises: [{
+        name: "Jalan di Tempat",
+        completedSets: 1,
+        completedRepetitions: null,
+        activeDurationSeconds: 300,
+        completed: true,
+      }],
+    },
+  });
+});
+
+Deno.test("workout adaptation progresses completed sessions unless two recent weeks were missed", () => {
+  const base: UserContext = {
+    profile: {},
+    weightLogs: [],
+    weeklyGoals: [{ status: "met" }],
+    latestPackage: null,
+    latestExercises: [],
+    latestWorkoutResult: {
+      activeDurationSeconds: 300,
+      completedAt: "2026-08-14T08:00:00.000Z",
+      exercises: [{
+        subExerciseId: "5f74f840-0f7b-4191-b741-7fd24db241b3",
+        completedSets: 1,
+        completedRepetitions: null,
+        activeDurationSeconds: 300,
+        completed: true,
+      }],
+    },
+  };
+
+  assertEquals(deriveWorkoutAdaptation(base, "workout-complete"), {
+    shouldEase: false,
+    shouldProgress: true,
+  });
+
+  assertEquals(deriveWorkoutAdaptation({
+    ...base,
+    weeklyGoals: [{ status: "missed" }, { status: "missed" }],
+  }, "workout-complete"), {
+    shouldEase: true,
+    shouldProgress: false,
+  });
+});
+
+Deno.test("workout adaptation does not treat non-consecutive missed weeks as a streak", () => {
+  const context: UserContext = {
+    profile: {},
+    weightLogs: [],
+    weeklyGoals: [
+      { status: "missed" },
+      { status: "met" },
+      { status: "missed" },
+    ],
+    latestPackage: null,
+    latestExercises: [],
+    latestWorkoutResult: null,
+  };
+
+  assertEquals(deriveWorkoutAdaptation(context, "weight-update"), {
+    shouldEase: false,
+    shouldProgress: false,
   });
 });
 
@@ -85,6 +164,25 @@ Deno.test("log redaction removes common credentials and direct identifiers", () 
     "Bearer secret-token naila@example.com user 7f9fc8a4-c39f-4e59-91f8-89ce8acb6e62",
   );
   assertEquals(redacted, "Bearer [REDACTED] [EMAIL] user [UUID]");
+});
+
+Deno.test("consent requests accept direct and serialized server-action payloads", () => {
+  assertEquals(
+    normalizeProgramRequestBody({ action: "set-ai-consent", consent: true }),
+    { action: "set-ai-consent", consent: true },
+  );
+  assertEquals(
+    normalizeProgramRequestBody({
+      body: JSON.stringify({ action: "set-ai-consent", consent: "on" }),
+    }),
+    { action: "set-ai-consent", consent: true },
+  );
+  assertEquals(
+    normalizeProgramRequestBody(JSON.stringify({
+      body: { action: "set-ai-consent", consent: "false" },
+    })),
+    { action: "set-ai-consent", consent: false },
+  );
 });
 
 Deno.test("unexpected backend failures return a generic client error with a request id", async () => {

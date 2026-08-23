@@ -15,10 +15,7 @@ vi.mock("@/lib/auth/guards", () => ({
 
 vi.mock("next/cache", () => ({ revalidatePath }));
 
-import {
-  resolveWorkoutAdjustmentAction,
-  sendChatMessageAction,
-} from "./actions";
+import { resolveChatAdjustmentAction, sendChatMessageAction } from "./actions";
 
 describe("chat server actions", () => {
   beforeEach(() => {
@@ -101,12 +98,13 @@ describe("chat server actions", () => {
     invoke.mockResolvedValue({
       data: {
         status: "applied",
+        target: "workout",
         packageId: "97433e4f-23a8-435e-9260-6a30bd262ba4",
       },
       error: null,
     });
 
-    const result = await resolveWorkoutAdjustmentAction({
+    const result = await resolveChatAdjustmentAction({
       messageId: "12bddb75-f6c2-4365-bb72-ad29ac4a55f1",
       decision: "apply",
     });
@@ -125,8 +123,38 @@ describe("chat server actions", () => {
     expect(result).toEqual({
       ok: true,
       status: "applied",
+      target: "workout",
       message: "Paket latihan sudah disesuaikan.",
       packageId: "97433e4f-23a8-435e-9260-6a30bd262ba4",
+      recommendationSetId: undefined,
+    });
+  });
+
+  it("revalidates food views after a food adjustment is applied", async () => {
+    invoke.mockResolvedValue({
+      data: {
+        status: "applied",
+        target: "food",
+        recommendationSetId: "664d32b2-fd29-4874-a2d1-a55547d177eb",
+      },
+      error: null,
+    });
+
+    const result = await resolveChatAdjustmentAction({
+      messageId: "53d3cd65-32cd-47ae-b2b8-38ef2fac1208",
+      decision: "apply",
+    });
+
+    expect(revalidatePath).toHaveBeenCalledWith("/chat");
+    expect(revalidatePath).toHaveBeenCalledWith("/dashboard");
+    expect(revalidatePath).toHaveBeenCalledWith("/food");
+    expect(result).toEqual({
+      ok: true,
+      status: "applied",
+      target: "food",
+      message: "Rekomendasi makanan sudah disesuaikan.",
+      packageId: undefined,
+      recommendationSetId: "664d32b2-fd29-4874-a2d1-a55547d177eb",
     });
   });
 });

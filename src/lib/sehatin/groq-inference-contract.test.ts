@@ -43,4 +43,32 @@ describe("Sehat.in direct Groq inference contract", () => {
     );
     expect(functionSource).toContain("generated_by_ai: modelResult.ok");
   });
+
+  it("keeps food chat adjustments small enough for strict structured output", () => {
+    expect(functionSource).toContain("meal: mealSchema.nullable()");
+    expect(functionSource).not.toContain("meals: z.array(mealSchema).length(4).nullable()");
+    expect(functionSource).toMatch(/"sehatin_chat_reply"[\s\S]*?2000,/);
+    expect(functionSource).toContain('reasoning_effort: "low"');
+    expect(functionSource).toMatch(/\/bubur\/\.test\(normalized\)/);
+  });
+
+  it("uses the latest workout result and consecutive weekly misses for adaptation", () => {
+    expect(functionSource).toContain("latestWorkoutResult");
+    expect(functionSource).toContain("deriveWorkoutAdaptation");
+    expect(functionSource).toMatch(
+      /recentGoalStatuses\.length === 2\s*&& recentGoalStatuses\.every\(\(status\) => status === "missed"\)/,
+    );
+  });
+
+  it("automatically regenerates recommendations at each PRD trigger", () => {
+    expect(functionSource).toMatch(
+      /action === "complete-onboarding"[\s\S]*generateAndPersist\([\s\S]*"onboarding"/,
+    );
+    expect(functionSource).toMatch(
+      /action === "record-weight"[\s\S]*shouldRecalibrate[\s\S]*"weight-update"/,
+    );
+    expect(functionSource).toMatch(
+      /edge_complete_workout_session[\s\S]*generateAndPersist\([\s\S]*"workout-complete"/,
+    );
+  });
 });

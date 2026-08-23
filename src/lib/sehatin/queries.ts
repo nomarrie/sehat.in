@@ -1,7 +1,7 @@
 import "server-only";
 
 import type { DashboardData } from "@/features/dashboard/dashboard.types";
-import type { ChatMessage, ChatPageData, WorkoutAdjustment } from "@/features/chat/chat.types";
+import type { ChatAdjustment, ChatMessage, ChatPageData } from "@/features/chat/chat.types";
 import type { FoodRecommendation, FoodRecommendationContext } from "@/features/food/food.types";
 import type { ProfileSettings } from "@/features/settings/settings.types";
 import type { ExercisePackage } from "@/features/workouts/workout.types";
@@ -30,7 +30,7 @@ async function loadPackageWithClient(client: Awaited<ReturnType<typeof requireOn
 
   let query = client.database
     .from("exercise_packages")
-    .select("id, name, scheduled_for, difficulty_level, purpose, estimated_minutes")
+    .select("id, name, scheduled_for, generated_by_ai, difficulty_level, purpose, estimated_minutes")
     .eq("generation_status", "ready");
   query = lookup.kind === "id"
     ? query.eq("id", lookup.id)
@@ -122,6 +122,8 @@ export async function loadProfileSettings(): Promise<ProfileSettings> {
     weeklyTargetKg: Number(profile.weekly_target_kg),
     activityLevel: profile.activity_level,
     mealPreference: profile.meal_preference,
+    aiProcessingConsent: Boolean(profile.ai_processing_consent_at)
+      && profile.ai_processing_consent_version === "2026-08-14",
     reminderEnabled: profile.reminder_enabled,
     reminderTime: profile.reminder_time.slice(0, 5),
     weeklySummaryEnabled: profile.weekly_summary_enabled,
@@ -188,23 +190,33 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function mapChatAdjustment(
   payload: unknown,
   status: unknown,
-): WorkoutAdjustment | undefined {
+): ChatAdjustment | undefined {
   if (!isRecord(payload)) return undefined;
-  const changes = Array.isArray(payload.changes)
-    ? payload.changes.filter((item): item is string => typeof item === "string")
-    : [];
+  const rows = Array.isArray(payload.rows)
+    ? payload.rows.flatMap((row) => isRecord(row)
+      && typeof row.label === "string"
+      && typeof row.before === "string"
+      && typeof row.after === "string"
+      ? [{ label: row.label, before: row.before, after: row.after }]
+      : [])
+    : Array.isArray(payload.changes)
+      ? payload.changes.flatMap((change) => typeof change === "string"
+        ? [{ label: "Penyesuaian", before: "Paket saat ini", after: change }]
+        : [])
+      : [];
   if (
     typeof payload.title !== "string"
     || typeof payload.description !== "string"
-    || changes.length === 0
+    || rows.length === 0
   ) {
     return undefined;
   }
 
   return {
+    target: payload.target === "food" ? "food" : "workout",
     title: payload.title,
     description: payload.description,
-    changes,
+    rows,
     status: status === "applied" || status === "declined" ? status : "pending",
   };
 }

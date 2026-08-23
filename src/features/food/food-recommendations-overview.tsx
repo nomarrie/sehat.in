@@ -79,11 +79,11 @@ export function FoodRecommendationsOverview({
       )}
 
       <aside className="food-sample-note" aria-label="Catatan rekomendasi">
-        <strong>{context.generatedByAi ? "Rekomendasi adaptif" : "Rekomendasi aman sementara"}</strong>
+        <strong>{context.generatedByAi ? "Rekomendasi adaptif dengan AI" : "Rencana terkurasi sementara"}</strong>
         <p>
           {context.generatedByAi
-            ? "Rencana ini disusun dari progres terbarumu dan tetap perlu disesuaikan dengan alergi atau arahan tenaga profesional."
-            : "Groq belum tersedia, jadi Sehat.in memakai rencana terkurasi yang mengikuti preferensi dan batas aman programmu."}
+            ? "AI menyusun rencana ini dari progres terbarumu. Tetap sesuaikan bahan dengan alergi, kebutuhan, atau arahan tenaga profesional."
+            : "Saat personalisasi AI belum dapat digunakan, Sehat.in memakai rencana terkurasi berdasarkan preferensi dan batas programmu."}
         </p>
       </aside>
     </div>

@@ -16,6 +16,7 @@ export type ExercisePackage = {
   id: string;
   name: string;
   dayLabel: string;
+  generatedByAi: boolean;
   difficulty: "Pemula" | "Menengah";
   purpose: string;
   estimatedMinutes: number;

@@ -3231,20 +3231,42 @@ dialog::backdrop {
   font-size: 0.74rem;
 }
 
-.chat-adjustment-card > ul {
-  display: grid;
-  gap: 0.5rem;
-  padding: 0;
-  margin: 0;
-  list-style: none;
+.chat-adjustment-table-wrap {
+  max-inline-size: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--border-soft);
+  border-radius: 0.7rem;
 }
 
-.chat-adjustment-card > ul > li {
-  padding: 0.6rem 0.7rem;
-  border-radius: 0.65rem;
-  background: var(--surface-soft);
+.chat-adjustment-table {
+  inline-size: 100%;
+  min-inline-size: 32rem;
+  border-collapse: collapse;
   font-size: 0.74rem;
-  font-weight: 700;
+  text-align: start;
+}
+
+.chat-adjustment-table th,
+.chat-adjustment-table td {
+  padding: 0.65rem 0.7rem;
+  border-block-end: 1px solid var(--border-soft);
+  vertical-align: top;
+}
+
+.chat-adjustment-table thead th {
+  color: var(--muted);
+  background: var(--surface-soft);
+  font-size: 0.66rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.chat-adjustment-table tbody th {
+  font-weight: 750;
+}
+
+.chat-adjustment-table tbody tr:last-child > * {
+  border-block-end: 0;
 }
 
 .chat-adjustment-actions {

@@ -19,6 +19,7 @@ export function mapExercisePackage(
     id: row.id,
     name: row.name,
     dayLabel: formatLongDate(row.scheduled_for),
+    generatedByAi: row.generated_by_ai,
     difficulty: row.difficulty_level === "menengah" ? "Menengah" : "Pemula",
     purpose: row.purpose,
     estimatedMinutes: row.estimated_minutes,

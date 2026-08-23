@@ -23,5 +23,20 @@ describe("PackageOverview", () => {
       "href",
       "/packages/latihan-hari-ini/session",
     );
+    expect(screen.getByText("Latihan adaptif dengan AI")).toBeInTheDocument();
+  });
+
+  it("labels a deterministic fallback as a curated plan", () => {
+    const workoutPackage = getPackageById("latihan-hari-ini");
+    if (!workoutPackage) throw new Error("Fixture package is required for this test");
+
+    render(
+      <PackageOverview
+        workoutPackage={{ ...workoutPackage, generatedByAi: false }}
+      />,
+    );
+
+    expect(screen.getByText("Rencana terkurasi sementara")).toBeInTheDocument();
+    expect(screen.queryByText(/Groq/i)).not.toBeInTheDocument();
   });
 });

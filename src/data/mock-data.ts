@@ -5,6 +5,7 @@ const todayPackage: ExercisePackage = {
   id: "latihan-hari-ini",
   name: "Latihan Hari Ini",
   dayLabel: "Senin, 11 Agustus",
+  generatedByAi: true,
   difficulty: "Pemula",
   purpose: "Membangun daya tahan dengan gerakan rendah benturan.",
   estimatedMinutes: 28,

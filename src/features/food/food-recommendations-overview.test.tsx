@@ -44,4 +44,26 @@ describe("FoodRecommendationsOverview", () => {
       "/dashboard",
     );
   });
+
+  it("describes AI and curated recommendations with provider-neutral PRD terms", () => {
+    const { rerender } = render(
+      <FoodRecommendationsOverview
+        context={{ ...foodRecommendationContext, generatedByAi: true }}
+        recommendations={foodRecommendations}
+      />,
+    );
+
+    expect(screen.getByText("Rekomendasi adaptif dengan AI")).toBeInTheDocument();
+
+    rerender(
+      <FoodRecommendationsOverview
+        context={{ ...foodRecommendationContext, generatedByAi: false }}
+        recommendations={foodRecommendations}
+      />,
+    );
+
+    expect(screen.getByText("Rencana terkurasi sementara")).toBeInTheDocument();
+    expect(screen.getByText(/personalisasi AI belum dapat digunakan/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Groq/i)).not.toBeInTheDocument();
+  });
 });

@@ -63,10 +63,16 @@ const generatedPlanSchema = z.object({
 const chatReplySchema = z.object({
   answer: z.string().trim().min(1).max(3000),
   adjustment: z.object({
+    target: z.enum(["workout", "food"]),
     title: z.string().trim().min(2).max(120),
     description: z.string().trim().min(10).max(500),
-    changes: z.array(z.string().trim().min(3).max(300)).min(1).max(10),
-    workout: workoutSchema,
+    rows: z.array(z.object({
+      label: z.string().trim().min(1).max(120),
+      before: z.string().trim().min(1).max(300),
+      after: z.string().trim().min(1).max(300),
+    })).min(1).max(10),
+    workout: workoutSchema.nullable(),
+    meal: mealSchema.nullable(),
   }).nullable(),
 });
 
@@ -111,6 +117,10 @@ const requestSchema = z.discriminatedUnion("action", [
     requestId: z.string().uuid().optional(),
   }),
   z.object({
+    action: z.literal("set-ai-consent"),
+    consent: z.boolean(),
+  }),
+  z.object({
     action: z.literal("complete-workout"),
     packageId: z.string().uuid(),
     clientCompletionId: z.string().uuid(),
@@ -132,6 +142,54 @@ const requestSchema = z.discriminatedUnion("action", [
   }),
 ]);
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+export function normalizeProgramRequestBody(value: unknown): unknown {
+  let candidate = value;
+
+  for (let depth = 0; depth < 3; depth += 1) {
+    if (typeof candidate === "string") {
+      try {
+        candidate = JSON.parse(candidate);
+        continue;
+      } catch {
+        break;
+      }
+    }
+    if (isRecord(candidate) && typeof candidate.action !== "string" && "body" in candidate) {
+      candidate = candidate.body;
+      continue;
+    }
+    break;
+  }
+
+  if (isRecord(candidate) && candidate.action === "set-ai-consent" && typeof candidate.consent === "string") {
+    const consent = candidate.consent.trim().toLocaleLowerCase("en-US");
+    if (["true", "on", "1"].includes(consent)) return { ...candidate, consent: true };
+    if (["false", "off", "0", ""].includes(consent)) return { ...candidate, consent: false };
+  }
+
+  return candidate;
+}
+
+function invalidRequestLogDetails(
+  rawBody: unknown,
+  normalizedBody: unknown,
+  issues: z.core.$ZodIssue[],
+  requestId: string,
+) {
+  return {
+    requestId,
+    rawType: Array.isArray(rawBody) ? "array" : typeof rawBody,
+    normalizedKeys: isRecord(normalizedBody) ? Object.keys(normalizedBody).slice(0, 20) : [],
+    actionType: isRecord(normalizedBody) ? typeof normalizedBody.action : "missing",
+    consentType: isRecord(normalizedBody) ? typeof normalizedBody.consent : "missing",
+    issues: issues.slice(0, 10).map((issue) => ({ code: issue.code, path: issue.path })),
+  };
+}
+
 type GeneratedPlan = z.infer<typeof generatedPlanSchema>;
 type ChatReply = z.infer<typeof chatReplySchema>;
 type GenerationReason = "onboarding" | "weight-update" | "workout-complete";
@@ -142,6 +200,17 @@ export type UserContext = {
   weeklyGoals: Array<Record<string, unknown>>;
   latestPackage: Record<string, unknown> | null;
   latestExercises: Array<Record<string, unknown>>;
+  latestWorkoutResult: {
+    activeDurationSeconds: number;
+    completedAt: string;
+    exercises: Array<{
+      subExerciseId: string;
+      completedSets: number;
+      completedRepetitions: number | null;
+      activeDurationSeconds: number;
+      completed: boolean;
+    }>;
+  } | null;
 };
 
 type ChatContext = {
@@ -151,6 +220,8 @@ type ChatContext = {
   streak: Record<string, unknown> | null;
   activePackage: Record<string, unknown> | null;
   activeExercises: Array<Record<string, unknown>>;
+  activeRecommendationSet: Record<string, unknown> | null;
+  activeMeals: GeneratedPlan["meals"];
 };
 
 type ModelSuccess<T> = {
@@ -239,14 +310,16 @@ function addDays(isoDate: string, days: number) {
 }
 
 async function loadContext(admin: ReturnType<typeof createAdminClient>, userId: string): Promise<UserContext> {
-  const [profileResult, logsResult, goalsResult, packagesResult] = await Promise.all([
+  const [profileResult, logsResult, goalsResult, packagesResult, sessionResult] = await Promise.all([
     admin.database.from("profiles").select("user_id, current_weight_kg, target_weight_kg, weekly_target_kg, activity_level, meal_preference, time_zone, ai_processing_consent_at, ai_processing_consent_version").eq("user_id", userId).maybeSingle(),
     admin.database.from("weight_logs").select("weight_kg, logged_on").eq("user_id", userId).order("logged_on", { ascending: false }).limit(12),
     admin.database.from("weekly_goals").select("week_start, start_weight_kg, target_weight_kg, planned_loss_kg, status").eq("user_id", userId).order("week_start", { ascending: false }).limit(4),
     admin.database.from("exercise_packages").select("id, name, difficulty_level, purpose, estimated_minutes, scheduled_for, status").eq("user_id", userId).order("scheduled_for", { ascending: false }).order("created_at", { ascending: false }).limit(1),
+    admin.database.from("exercise_sessions").select("id, active_duration_seconds, completed_at").eq("user_id", userId).order("completed_at", { ascending: false }).limit(1),
   ]);
 
-  const firstError = profileResult.error ?? logsResult.error ?? goalsResult.error ?? packagesResult.error;
+  const firstError = profileResult.error ?? logsResult.error ?? goalsResult.error
+    ?? packagesResult.error ?? sessionResult.error;
   if (firstError) throw firstError;
   if (!profileResult.data) throw new Error("Onboarding is required before generating a program.");
 
@@ -255,12 +328,36 @@ async function loadContext(admin: ReturnType<typeof createAdminClient>, userId: 
   if (latestPackage?.id) {
     const exerciseResult = await admin.database
       .from("sub_exercises")
-      .select("name, mode, sets, repetitions, duration_seconds, rest_seconds, order_index, instruction")
+      .select("id, name, mode, sets, repetitions, duration_seconds, rest_seconds, order_index, instruction")
       .eq("package_id", latestPackage.id)
       .order("order_index", { ascending: true })
       .limit(20);
     if (exerciseResult.error) throw exerciseResult.error;
     latestExercises = exerciseResult.data ?? [];
+  }
+
+  const latestSession = sessionResult.data?.[0] ?? null;
+  let latestWorkoutResult: UserContext["latestWorkoutResult"] = null;
+  if (latestSession?.id) {
+    const itemResult = await admin.database.from("exercise_session_items")
+      .select("sub_exercise_id, completed_sets, completed_repetitions, active_duration_seconds, completed")
+      .eq("session_id", latestSession.id)
+      .eq("user_id", userId)
+      .limit(50);
+    if (itemResult.error) throw itemResult.error;
+    latestWorkoutResult = {
+      activeDurationSeconds: Number(latestSession.active_duration_seconds),
+      completedAt: String(latestSession.completed_at),
+      exercises: (itemResult.data ?? []).map((item) => ({
+        subExerciseId: String(item.sub_exercise_id),
+        completedSets: Number(item.completed_sets),
+        completedRepetitions: item.completed_repetitions === null
+          ? null
+          : Number(item.completed_repetitions),
+        activeDurationSeconds: Number(item.active_duration_seconds),
+        completed: Boolean(item.completed),
+      })),
+    };
   }
 
   return {
@@ -269,6 +366,7 @@ async function loadContext(admin: ReturnType<typeof createAdminClient>, userId: 
     weeklyGoals: goalsResult.data ?? [],
     latestPackage,
     latestExercises,
+    latestWorkoutResult,
   };
 }
 
@@ -276,7 +374,7 @@ async function loadChatContext(
   admin: ReturnType<typeof createAdminClient>,
   userId: string,
 ): Promise<ChatContext> {
-  const [profileResult, logsResult, goalResult, streakResult, packageResult] = await Promise.all([
+  const [profileResult, logsResult, goalResult, streakResult, packageResult, recommendationSetResult] = await Promise.all([
     admin.database.from("profiles")
       .select("current_weight_kg, target_weight_kg, weekly_target_kg, meal_preference, ai_processing_consent_at, ai_processing_consent_version")
       .eq("user_id", userId)
@@ -303,14 +401,22 @@ async function loadChatContext(
       .order("scheduled_for", { ascending: true })
       .order("created_at", { ascending: false })
       .limit(1),
+    admin.database.from("nutrition_recommendation_sets")
+      .select("id, based_on_weight_kg, generated_by_ai, created_at")
+      .eq("user_id", userId)
+      .eq("generation_status", "ready")
+      .order("created_at", { ascending: false })
+      .limit(1),
   ]);
   const firstError = profileResult.error ?? logsResult.error ?? goalResult.error
-    ?? streakResult.error ?? packageResult.error;
+    ?? streakResult.error ?? packageResult.error ?? recommendationSetResult.error;
   if (firstError) throw firstError;
   if (!profileResult.data) throw new Error("Onboarding is required before chat.");
 
   const activePackage = packageResult.data?.[0] ?? null;
+  const activeRecommendationSet = recommendationSetResult.data?.[0] ?? null;
   let activeExercises: Array<Record<string, unknown>> = [];
+  let activeMeals: GeneratedPlan["meals"] = [];
   if (activePackage?.id) {
     const exerciseResult = await admin.database.from("sub_exercises")
       .select("name, mode, sets, repetitions, duration_seconds, rest_seconds, order_index, instruction")
@@ -322,6 +428,57 @@ async function loadChatContext(
     activeExercises = exerciseResult.data ?? [];
   }
 
+  if (activeRecommendationSet?.id) {
+    const mealResult = await admin.database.from("nutrition_recommendations")
+      .select("id, meal_type, name, description, rationale, prep_minutes, servings, calories, protein_grams, carbs_grams, fat_grams, fiber_grams, order_index")
+      .eq("recommendation_set_id", activeRecommendationSet.id)
+      .eq("user_id", userId)
+      .order("order_index", { ascending: true })
+      .limit(10);
+    if (mealResult.error) throw mealResult.error;
+    const mealRows = mealResult.data ?? [];
+    const mealIds = mealRows.map((meal) => String(meal.id));
+    const [ingredientResult, stepResult] = mealIds.length
+      ? await Promise.all([
+          admin.database.from("nutrition_ingredients")
+            .select("recommendation_id, amount, name, order_index")
+            .in("recommendation_id", mealIds)
+            .order("order_index", { ascending: true })
+            .limit(200),
+          admin.database.from("nutrition_steps")
+            .select("recommendation_id, instruction, order_index")
+            .in("recommendation_id", mealIds)
+            .order("order_index", { ascending: true })
+            .limit(200),
+        ])
+      : [{ data: [], error: null }, { data: [], error: null }];
+    if (ingredientResult.error || stepResult.error) throw ingredientResult.error ?? stepResult.error;
+    activeMeals = mealRows.flatMap((meal) => {
+      const parsed = mealSchema.safeParse({
+        mealType: meal.meal_type,
+        name: meal.name,
+        description: meal.description,
+        rationale: meal.rationale,
+        prepMinutes: Number(meal.prep_minutes),
+        servings: Number(meal.servings),
+        nutrition: {
+          calories: Number(meal.calories),
+          proteinGrams: Number(meal.protein_grams),
+          carbsGrams: Number(meal.carbs_grams),
+          fatGrams: Number(meal.fat_grams),
+          fiberGrams: Number(meal.fiber_grams),
+        },
+        ingredients: (ingredientResult.data ?? [])
+          .filter((item) => item.recommendation_id === meal.id)
+          .map((item) => ({ amount: String(item.amount), name: String(item.name) })),
+        cookingSteps: (stepResult.data ?? [])
+          .filter((item) => item.recommendation_id === meal.id)
+          .map((item) => String(item.instruction)),
+      });
+      return parsed.success ? [parsed.data] : [];
+    });
+  }
+
   return {
     profile: profileResult.data,
     weightLogs: logsResult.data ?? [],
@@ -329,6 +486,8 @@ async function loadChatContext(
     streak: streakResult.data ?? null,
     activePackage,
     activeExercises,
+    activeRecommendationSet,
+    activeMeals,
   };
 }
 
@@ -354,6 +513,7 @@ async function callGroq<T>(
         model,
         messages,
         max_completion_tokens: maxCompletionTokens,
+        reasoning_effort: "low",
         response_format: {
           type: "json_schema",
           json_schema: {
@@ -492,10 +652,7 @@ function fallbackMeals(preference: unknown): GeneratedPlan["meals"] {
 }
 
 function fallbackWorkout(context: UserContext, reason: GenerationReason): GeneratedPlan["workout"] {
-  const latestStatus = String(context.weeklyGoals[0]?.status ?? "active");
-  const missedWeeks = context.weeklyGoals.filter((goal) => goal.status === "missed").slice(0, 2).length;
-  const shouldProgress = reason === "workout-complete" && latestStatus === "met";
-  const shouldEase = missedWeeks >= 2;
+  const { shouldEase, shouldProgress } = deriveWorkoutAdaptation(context, reason);
 
   if (context.latestExercises.length >= 3 && reason === "workout-complete") {
     const exercises = context.latestExercises.map((raw) => {
@@ -566,6 +723,22 @@ export function buildAiContext(context: UserContext) {
         })),
       }
     : null;
+  const exerciseNames = new Map(
+    context.latestExercises.map((exercise) => [String(exercise.id), String(exercise.name)]),
+  );
+  const latestWorkoutResult = context.latestWorkoutResult
+    ? {
+        activeDurationSeconds: context.latestWorkoutResult.activeDurationSeconds,
+        completedAt: context.latestWorkoutResult.completedAt,
+        exercises: context.latestWorkoutResult.exercises.map((exercise) => ({
+          name: exerciseNames.get(exercise.subExerciseId) ?? "Latihan",
+          completedSets: exercise.completedSets,
+          completedRepetitions: exercise.completedRepetitions,
+          activeDurationSeconds: exercise.activeDurationSeconds,
+          completed: exercise.completed,
+        })),
+      }
+    : null;
 
   return {
     currentWeightKg: Math.round(Number(context.profile.current_weight_kg)),
@@ -578,6 +751,28 @@ export function buildAiContext(context: UserContext) {
       .map((goal) => String(goal.status))
       .filter((status) => allowedGoalStatuses.has(status)),
     previousWorkout,
+    latestWorkoutResult,
+  };
+}
+
+export function deriveWorkoutAdaptation(
+  context: UserContext,
+  reason: GenerationReason,
+) {
+  const recentGoalStatuses = context.weeklyGoals
+    .slice(0, 2)
+    .map((goal) => String(goal.status));
+  const shouldEase = recentGoalStatuses.length === 2
+    && recentGoalStatuses.every((status) => status === "missed");
+  const completedExercises = context.latestWorkoutResult?.exercises ?? [];
+  const completedLatestWorkout = completedExercises.length > 0
+    && completedExercises.every((exercise) => exercise.completed);
+
+  return {
+    shouldEase,
+    shouldProgress: reason === "workout-complete"
+      && completedLatestWorkout
+      && !shouldEase,
   };
 }
 
@@ -596,7 +791,7 @@ async function tryAiPlan(
     [
       {
         role: "system",
-        content: "Kamu menyusun program Sehat.in dalam Bahasa Indonesia yang tenang, suportif, dan ramah pemula. Jangan memberi diagnosis, label kondisi medis, klaim terapi, atau mendorong perubahan ekstrem. Target penurunan mingguan wajib 0,5–1 kg. Latihan harus rendah risiko, progresif dalam kenaikan kecil, dan diperingan bila dua target mingguan berturut-turut gagal. Rekomendasi makanan harus realistis, menyebut perkiraan gizi per porsi, dan selalu terdiri dari Sarapan, Makan siang, Camilan, dan Makan malam.",
+        content: "Kamu menyusun paket latihan adaptif dan rekomendasi makanan dinamis Sehat.in dalam Bahasa Indonesia yang tenang, suportif, dan ramah pemula. Jangan memberi diagnosis, label kondisi medis, klaim terapi, atau mendorong perubahan ekstrem. Target penurunan mingguan wajib tetap 0,5–1 kg. Gunakan hasil latihan terakhir: bila seluruh target latihan selesai dan dua minggu terbaru tidak sama-sama gagal, naikkan hanya satu dimensi secara kecil (repetisi, set, atau durasi). Bila dua target mingguan terbaru berturut-turut gagal, prioritaskan latihan lebih ringan atau gerakan pengganti dengan jeda cukup. Rekomendasi makanan harus menyesuaikan berat terkini dan preferensi pengguna, realistis, menyebut perkiraan gizi per porsi, dan selalu terdiri dari Sarapan, Makan siang, Camilan, dan Makan malam.",
       },
       {
         role: "user",
@@ -774,6 +969,137 @@ function createEasierWorkout(context: ChatContext): GeneratedPlan["workout"] | n
   });
 }
 
+function createHarderWorkout(context: ChatContext): GeneratedPlan["workout"] | null {
+  if (!context.activePackage || context.activeExercises.length < 3) return null;
+
+  const exercises = context.activeExercises.map((raw) => {
+    const mode = raw.mode === "timed" ? "timed" as const : "repetitions" as const;
+    return {
+      name: String(raw.name),
+      mode,
+      sets: Math.min(10, Math.max(1, Number(raw.sets))),
+      repetitions: mode === "repetitions"
+        ? Math.min(100, Math.max(1, Number(raw.repetitions) + 2))
+        : null,
+      durationSeconds: mode === "timed"
+        ? Math.min(3600, Math.max(10, Number(raw.duration_seconds) + 30))
+        : null,
+      restSeconds: Math.max(0, Number(raw.rest_seconds)),
+      instruction: String(raw.instruction),
+    };
+  });
+
+  return workoutSchema.parse({
+    name: `${String(context.activePackage.name)} - Tantangan Bertahap`.slice(0, 120),
+    difficulty: context.activePackage.difficulty_level === "menengah" ? "menengah" : "pemula",
+    purpose: "Menambah tantangan secara bertahap tanpa mengubah seluruh ritme latihan hari ini.",
+    estimatedMinutes: Math.min(120, Number(context.activePackage.estimated_minutes) + 5),
+    exercises,
+  });
+}
+
+function exerciseTarget(exercise: {
+  mode: "timed" | "repetitions";
+  sets: number;
+  repetitions: number | null;
+  durationSeconds: number | null;
+}) {
+  return exercise.mode === "repetitions"
+    ? `${exercise.sets} set × ${exercise.repetitions} repetisi`
+    : `${exercise.sets} set × ${exercise.durationSeconds} detik`;
+}
+
+function workoutAdjustmentRows(context: ChatContext, workout: GeneratedPlan["workout"]) {
+  return workout.exercises.map((exercise, index) => {
+    const current = context.activeExercises[index];
+    const currentMode = current?.mode === "timed" ? "timed" as const : "repetitions" as const;
+    return {
+      label: exercise.name,
+      before: current
+        ? exerciseTarget({
+            mode: currentMode,
+            sets: Number(current.sets),
+            repetitions: currentMode === "repetitions" ? Number(current.repetitions) : null,
+            durationSeconds: currentMode === "timed" ? Number(current.duration_seconds) : null,
+          })
+        : "Belum ada",
+      after: exerciseTarget(exercise),
+    };
+  });
+}
+
+function requestedMealType(normalized: string): GeneratedPlan["meals"][number]["mealType"] {
+  return /sarapan/.test(normalized)
+    ? "Sarapan"
+    : /camilan|snack/.test(normalized)
+      ? "Camilan"
+      : /malam/.test(normalized)
+        ? "Makan malam"
+        : "Makan siang";
+}
+
+function createFoodAdjustment(context: ChatContext, normalized: string): GeneratedPlan["meals"][number] | null {
+  if (!context.activeRecommendationSet || context.activeMeals.length !== 4) return null;
+  const mealType = requestedMealType(normalized);
+
+  if (/bubur/.test(normalized)) {
+    return mealSchema.parse({
+      mealType,
+      name: "Bubur Ayam Sayur",
+      description: "Bubur nasi hangat dengan ayam suwir dan sayuran lembut untuk satu porsi makan malam yang tetap seimbang.",
+      rationale: "Memberi karbohidrat, protein, dan serat dalam sajian yang mudah disiapkan serta nyaman dinikmati malam hari.",
+      prepMinutes: 35,
+      servings: 1,
+      nutrition: {
+        calories: 430,
+        proteinGrams: 30,
+        carbsGrams: 55,
+        fatGrams: 10,
+        fiberGrams: 5,
+      },
+      ingredients: [
+        { amount: "150 g", name: "nasi matang" },
+        { amount: "100 g", name: "dada ayam matang, disuwir" },
+        { amount: "1 mangkuk", name: "sayuran lembut" },
+        { amount: "500 ml", name: "air atau kaldu rendah garam" },
+      ],
+      cookingSteps: [
+        "Masak nasi bersama air atau kaldu sambil diaduk sampai menjadi bubur.",
+        "Tambahkan sayuran, lalu sajikan dengan ayam suwir setelah seluruh bahan matang.",
+      ],
+    });
+  }
+
+  if (/ayam/.test(normalized)) {
+    return mealSchema.parse({
+        mealType,
+        name: "Ayam Panggang dengan Nasi dan Sayur",
+        description: "Ayam panggang sederhana dengan nasi secukupnya dan sayuran berwarna untuk satu porsi makan yang seimbang.",
+        rationale: "Memberi sumber protein, karbohidrat, lemak, dan serat dalam porsi realistis sesuai ritme programmu.",
+        prepMinutes: 30,
+        servings: 1,
+        nutrition: {
+          calories: 520,
+          proteinGrams: 42,
+          carbsGrams: 55,
+          fatGrams: 14,
+          fiberGrams: 7,
+        },
+        ingredients: [
+          { amount: "150 g", name: "dada ayam tanpa kulit" },
+          { amount: "150 g", name: "nasi matang" },
+          { amount: "1 mangkuk", name: "sayuran campur" },
+          { amount: "1 sdt", name: "minyak untuk memanggang" },
+        ],
+        cookingSteps: [
+          "Bumbui ayam secukupnya, lalu panggang sampai matang merata.",
+          "Sajikan ayam bersama nasi dan sayuran yang sudah dimasak.",
+        ],
+      });
+  }
+  return null;
+}
+
 function fallbackChatReply(context: ChatContext, content: string): ChatReply {
   const normalized = content.toLocaleLowerCase("id-ID");
 
@@ -784,21 +1110,45 @@ function fallbackChatReply(context: ChatContext, content: string): ChatReply {
     };
   }
 
-  if (/latihan/.test(normalized) && /berat|sulit|terlalu/.test(normalized)) {
-    const workout = createEasierWorkout(context);
+  if (/latihan/.test(normalized) && /berat|sulit|terlalu|ringan|mudah/.test(normalized)) {
+    const wantsMoreChallenge = /ringan|mudah/.test(normalized) && !/terlalu berat|terlalu sulit/.test(normalized);
+    const workout = wantsMoreChallenge ? createHarderWorkout(context) : createEasierWorkout(context);
     if (workout) {
-      const changes = workout.exercises.slice(0, 10).map((exercise) =>
-        exercise.mode === "repetitions"
-          ? `${exercise.name}: ${exercise.sets} set × ${exercise.repetitions} repetisi`
-          : `${exercise.name}: ${exercise.sets} set × ${exercise.durationSeconds} detik`,
-      );
       return {
-        answer: "Kita bisa membuat latihan hari ini lebih ringan. Aku menyiapkan usulan di bawah; paket aktifmu tetap sama sampai kamu mengonfirmasi.",
+        answer: wantsMoreChallenge
+          ? "Kita bisa menambah tantangan secara bertahap. Aku menyiapkan perbandingan di bawah; paket aktifmu tetap sama sampai kamu mengonfirmasi."
+          : "Kita bisa membuat latihan hari ini lebih ringan. Aku menyiapkan perbandingan di bawah; paket aktifmu tetap sama sampai kamu mengonfirmasi.",
         adjustment: {
+          target: "workout",
           title: "Usulan penyesuaian",
-          description: "Turunkan beban hari ini tanpa menghilangkan ritme latihanmu.",
-          changes,
+          description: wantsMoreChallenge
+            ? "Naikkan tantangan secara kecil sambil mempertahankan susunan latihanmu."
+            : "Turunkan beban hari ini tanpa menghilangkan ritme latihanmu.",
+          rows: workoutAdjustmentRows(context, workout),
           workout,
+          meal: null,
+        },
+      };
+    }
+  }
+
+  if (/makan|menu|makanan/.test(normalized) && /ingin|ganti|ubah|sesuaikan|mau/.test(normalized)) {
+    const meal = createFoodAdjustment(context, normalized);
+    if (meal) {
+      const currentMeal = context.activeMeals.find((item) => item.mealType === meal.mealType);
+      return {
+        answer: "Aku menyiapkan usulan perubahan makanan dalam tabel di bawah. Rekomendasi terbarumu tetap sama sampai kamu mengonfirmasi.",
+        adjustment: {
+          target: "food",
+          title: "Usulan penyesuaian makanan",
+          description: "Ubah menu yang diminta tanpa mengganti waktu makan lain.",
+          rows: [{
+            label: meal.mealType,
+            before: currentMeal?.name ?? "Belum ada",
+            after: meal.name,
+          }],
+          workout: null,
+          meal,
         },
       };
     }
@@ -846,6 +1196,8 @@ async function tryAiChat(
     streak: context.streak,
     activePackage: context.activePackage,
     activeExercises: context.activeExercises,
+    activeRecommendationSet: context.activeRecommendationSet,
+    activeMeals: context.activeMeals,
   };
 
   return callGroq(
@@ -854,11 +1206,11 @@ async function tryAiChat(
     [
       {
         role: "system",
-        content: `Kamu adalah Pendamping Sehat.in. Jawab dalam Bahasa Indonesia yang tenang, suportif, ringkas, dan ramah pemula. Gunakan hanya konteks minimum berikut: ${JSON.stringify(contextForModel)}. Jangan memberi diagnosis, label kondisi medis, klaim terapi, atau mendorong penurunan ekstrem. Untuk rasa sakit, pusing, atau sesak: sarankan menghentikan gerakan pemicu dan menghubungi tenaga kesehatan bila menetap, memburuk, atau mengganggu aktivitas. Jangan mengarang data yang tidak ada. Hanya isi adjustment bila pengguna secara eksplisit meminta latihan diperingan atau mengatakan paket aktif terlalu berat. Adjustment harus berupa versi aman dari paket aktif, mempertahankan 3–10 gerakan, dan tidak diterapkan sampai pengguna mengonfirmasi. Untuk pertanyaan lain, adjustment wajib null.`,
+        content: `Kamu adalah Pendamping Sehat.in. Jawab dalam Bahasa Indonesia yang tenang, suportif, ringkas, dan ramah pemula. Gunakan hanya konteks minimum berikut: ${JSON.stringify(contextForModel)}. Jangan memberi diagnosis, label kondisi medis, klaim terapi, atau mendorong penurunan ekstrem. Untuk rasa sakit, pusing, atau sesak: sarankan menghentikan gerakan pemicu dan menghubungi tenaga kesehatan bila menetap, memburuk, atau mengganggu aktivitas. Jangan mengarang data yang tidak ada. Isi adjustment hanya bila pengguna secara eksplisit meminta perubahan latihan atau makanan, termasuk mengatakan latihan terlalu berat, terlalu ringan, atau meminta menu/bahan tertentu. Untuk target workout: target wajib "workout", workout berisi versi aman dari paket aktif dengan 3–10 gerakan, meal wajib null, dan rows membandingkan target setiap gerakan saat ini dengan usulan. Untuk target food: target wajib "food", meal wajib berisi tepat satu menu pengganti lengkap untuk waktu makan yang diminta, workout wajib null, dan rows hanya membandingkan menu tersebut. Jangan menerapkan perubahan sebelum pengguna mengonfirmasi melalui tombol. Untuk pertanyaan atau ide yang tidak meminta perubahan, adjustment wajib null.`,
       },
       ...history,
     ],
-    1200,
+    2000,
   );
 }
 
@@ -866,14 +1218,24 @@ function mapStoredAssistant(row: Record<string, unknown>) {
   const payload = row.adjustment_payload && typeof row.adjustment_payload === "object"
     ? row.adjustment_payload as Record<string, unknown>
     : null;
-  const changes = Array.isArray(payload?.changes)
-    ? payload.changes.filter((item): item is string => typeof item === "string")
-    : [];
+  const rows = Array.isArray(payload?.rows)
+    ? payload.rows.flatMap((item) => isRecord(item)
+      && typeof item.label === "string"
+      && typeof item.before === "string"
+      && typeof item.after === "string"
+      ? [{ label: item.label, before: item.before, after: item.after }]
+      : [])
+    : Array.isArray(payload?.changes)
+      ? payload.changes.flatMap((item) => typeof item === "string"
+        ? [{ label: "Penyesuaian", before: "Paket saat ini", after: item }]
+        : [])
+      : [];
   const adjustment = row.kind === "adjustment" && payload
     ? {
+        target: payload.target === "food" ? "food" as const : "workout" as const,
         title: String(payload.title ?? "Usulan penyesuaian"),
         description: String(payload.description ?? "Tinjau penyesuaian sebelum diterapkan."),
-        changes,
+        rows,
         status: row.adjustment_status === "applied" || row.adjustment_status === "declined"
           ? row.adjustment_status
           : "pending",
@@ -984,16 +1346,39 @@ async function handleChatMessage(
     const modelResult = await tryAiChat(context, history);
     const fallback = fallbackChatReply(context, input.content);
     const reply = modelResult.ok ? modelResult.data : fallback;
-    const validAdjustment = reply.adjustment && context.activePackage?.id
+    const validAdjustment = reply.adjustment?.target === "workout"
+      && reply.adjustment.workout
+      && reply.adjustment.meal === null
+      && context.activePackage?.id
       ? reply.adjustment
-      : null;
+      : reply.adjustment?.target === "food"
+        && reply.adjustment.meal
+        && reply.adjustment.workout === null
+        && reply.adjustment.meal.mealType === requestedMealType(input.content.toLocaleLowerCase("id-ID"))
+        && context.activeRecommendationSet?.id
+        ? reply.adjustment
+        : null;
     const adjustmentPayload = validAdjustment
-      ? {
+      ? validAdjustment.target === "workout"
+        ? {
+          target: "workout",
           basePackageId: String(context.activePackage?.id),
           title: validAdjustment.title,
           description: validAdjustment.description,
-          changes: validAdjustment.changes,
+          rows: validAdjustment.rows,
           workout: validAdjustment.workout,
+        }
+        : {
+          target: "food",
+          baseRecommendationSetId: String(context.activeRecommendationSet?.id),
+          title: validAdjustment.title,
+          description: validAdjustment.description,
+          rows: [{
+            label: validAdjustment.meal.mealType,
+            before: context.activeMeals.find((meal) => meal.mealType === validAdjustment.meal?.mealType)?.name ?? "Belum ada",
+            after: validAdjustment.meal.name,
+          }],
+          meal: validAdjustment.meal,
         }
       : null;
 
@@ -1074,8 +1459,16 @@ export default async function handler(req: Request): Promise<Response> {
     const userId = userResult.data?.user?.id;
     if (userResult.error || !userId) return response({ error: "Unauthorized" }, 401);
 
-    const parsed = requestSchema.safeParse(await req.json().catch(() => null));
-    if (!parsed.success) return response({ error: "Invalid request" }, 400);
+    const rawBody = await req.json().catch(() => null);
+    const normalizedBody = normalizeProgramRequestBody(rawBody);
+    const parsed = requestSchema.safeParse(normalizedBody);
+    if (!parsed.success) {
+      console.warn(
+        "sehatin-program rejected invalid request",
+        invalidRequestLogDetails(rawBody, normalizedBody, parsed.error.issues, requestId),
+      );
+      return response({ error: "Invalid request", requestId }, 400);
+    }
     action = parsed.data.action;
     const admin = createAdminClient({ baseUrl, apiKey });
 
@@ -1134,6 +1527,15 @@ export default async function handler(req: Request): Promise<Response> {
           )
         : null;
       return response({ ok: true, result: rpcResult.data, generation });
+    }
+
+    if (parsed.data.action === "set-ai-consent") {
+      const consentResult = await admin.database.from("profiles").update({
+        ai_processing_consent_at: parsed.data.consent ? new Date().toISOString() : null,
+        ai_processing_consent_version: parsed.data.consent ? AI_CONSENT_VERSION : null,
+      }).eq("user_id", userId).select("user_id").single();
+      if (consentResult.error) throw consentResult.error;
+      return response({ ok: true, aiProcessingConsent: parsed.data.consent });
     }
 
     if (parsed.data.action === "chat-message") {

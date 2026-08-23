@@ -17,6 +17,7 @@ const singleExercisePackage: ExercisePackage = {
   id: "sesi-singkat",
   name: "Sesi Singkat",
   dayLabel: "Hari ini",
+  generatedByAi: false,
   difficulty: "Pemula",
   purpose: "Menguji penyelesaian sesi.",
   estimatedMinutes: 1,

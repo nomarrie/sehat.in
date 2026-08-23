@@ -11,6 +11,7 @@ export const profileSettings: ProfileSettings = {
   weeklyTargetKg: 0.6,
   activityLevel: "pemula",
   mealPreference: "seimbang",
+  aiProcessingConsent: false,
   reminderEnabled: true,
   reminderTime: "18:30",
   weeklySummaryEnabled: true,

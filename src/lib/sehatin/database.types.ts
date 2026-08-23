@@ -9,6 +9,8 @@ export type ProfileRow = {
   weekly_target_kg: string | number;
   activity_level: "pemula" | "menengah" | "aktif";
   meal_preference: "seimbang" | "tinggi-protein" | "nabati";
+  ai_processing_consent_at: string | null;
+  ai_processing_consent_version: string | null;
   reminder_enabled: boolean;
   reminder_time: string;
   weekly_summary_enabled: boolean;
@@ -30,6 +32,7 @@ export type ExercisePackageRow = {
   id: string;
   name: string;
   scheduled_for: string;
+  generated_by_ai: boolean;
   difficulty_level: "pemula" | "menengah";
   purpose: string;
   estimated_minutes: number;

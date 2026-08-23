@@ -7,7 +7,7 @@ import { IdentificationCardIcon } from "@phosphor-icons/react/dist/ssr/Identific
 import { TargetIcon } from "@phosphor-icons/react/dist/ssr/Target";
 import { ArrowLeftIcon } from "@phosphor-icons/react/dist/ssr/ArrowLeft";
 import Link from "next/link";
-import { useActionState, useMemo, useState, type FormEvent } from "react";
+import { useActionState, useMemo, useRef, useState, type FormEvent } from "react";
 import type { ProfileSettings, SettingsDraft } from "./settings.types";
 import { settingsToDraft, validateSettingsDraft } from "./settings-validation";
 import { saveSettingsAction, type SettingsActionState } from "./actions";
@@ -30,18 +30,29 @@ export function SettingsForm({ initialSettings, mode = "all" }: SettingsFormProp
   const initialDraft = useMemo(() => settingsToDraft(initialSettings), [initialSettings]);
   const [savedDraft, setSavedDraft] = useState(initialDraft);
   const [draft, setDraft] = useState(initialDraft);
+  const draftRef = useRef(initialDraft);
+  const [savedRevision, setSavedRevision] = useState(0);
   const [errors, setErrors] = useState<ReturnType<typeof validateSettingsDraft>["errors"]>({});
   const [message, setMessage] = useState("");
   const [, saveAction, pending] = useActionState(async (previousState: SettingsActionState, formData: FormData) => {
     const result = await saveSettingsAction(previousState, formData);
     setMessage(result.message ?? "");
-    if (result.ok) setSavedDraft(draft);
+    if (result.ok) {
+      const submittedDraft = draftRef.current;
+      setSavedDraft(submittedDraft);
+      setDraft({ ...submittedDraft });
+      setSavedRevision((revision) => revision + 1);
+    }
     return result;
   }, {});
   const isDirty = JSON.stringify(draft) !== JSON.stringify(savedDraft);
 
   function update<K extends keyof SettingsDraft>(key: K, value: SettingsDraft[K]) {
-    setDraft((current) => ({ ...current, [key]: value }));
+    setDraft((current) => {
+      const next = { ...current, [key]: value };
+      draftRef.current = next;
+      return next;
+    });
     setErrors((current) => ({ ...current, [key]: undefined }));
     setMessage("");
   }
@@ -58,6 +69,7 @@ export function SettingsForm({ initialSettings, mode = "all" }: SettingsFormProp
   }
 
   function cancelChanges() {
+    draftRef.current = savedDraft;
     setDraft(savedDraft);
     setErrors({});
     setMessage("Perubahan yang belum disimpan dibatalkan.");
@@ -86,7 +98,7 @@ export function SettingsForm({ initialSettings, mode = "all" }: SettingsFormProp
         </div>
       </header>
 
-      <form className="settings-form" action={saveAction} onSubmit={handleSubmit} noValidate>
+      <form key={savedRevision} className="settings-form" action={saveAction} onSubmit={handleSubmit} noValidate>
         {mode === "preferences" && <>
           <input type="hidden" name="heightCm" value={draft.heightCm} />
           <input type="hidden" name="currentWeightKg" value={draft.currentWeightKg} />
@@ -94,6 +106,7 @@ export function SettingsForm({ initialSettings, mode = "all" }: SettingsFormProp
           <input type="hidden" name="weeklyTargetKg" value={draft.weeklyTargetKg} />
           <input type="hidden" name="activityLevel" value={draft.activityLevel} />
           <input type="hidden" name="mealPreference" value={draft.mealPreference} />
+          <input type="hidden" name="aiProcessingConsent" value={draft.aiProcessingConsent ? "on" : ""} />
         </>}
         {mode === "program" && <>
           <input type="hidden" name="fullName" value={draft.fullName} />
@@ -138,6 +151,22 @@ export function SettingsForm({ initialSettings, mode = "all" }: SettingsFormProp
             <label className="form-field"><span>Target mingguan</span><span className="input-with-unit"><input name="weeklyTargetKg" aria-label="Target mingguan" type="number" inputMode="decimal" min="0.5" max="1" step="0.1" value={draft.weeklyTargetKg} onChange={(event) => update("weeklyTargetKg", event.target.value)} {...errorProps("weeklyTargetKg")} /><small aria-hidden="true">kg</small></span><small className="field-hint">Rentang aman: 0,5–1 kg.</small>{fieldError("weeklyTargetKg")}</label>
             <label className="form-field"><span>Tingkat aktivitas</span><select name="activityLevel" value={draft.activityLevel} onChange={(event) => update("activityLevel", event.target.value as SettingsDraft["activityLevel"])}>{activityOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
             <label className="form-field"><span>Preferensi makanan</span><select name="mealPreference" value={draft.mealPreference} onChange={(event) => update("mealPreference", event.target.value as SettingsDraft["mealPreference"])}>{mealOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+          </div>
+        </section>}
+
+        {mode !== "preferences" && <section className="settings-section" aria-labelledby="ai-personalization-title">
+          <div className="settings-section-heading">
+            <span className="settings-section-icon"><CheckCircleIcon size={22} aria-hidden="true" /></span>
+            <div><h2 id="ai-personalization-title">Personalisasi AI</h2><p>Kelola izin pemrosesan data untuk rekomendasi adaptif.</p></div>
+          </div>
+          <div className="preference-list">
+            <label className="preference-row">
+              <span>
+                <strong>Izinkan personalisasi dengan AI</strong>
+                <small>Jika aktif, berat terkini, target program, preferensi makanan, dan ringkasan latihan dapat diproses untuk menyusun rekomendasi. Jika tidak, Sehat.in memakai rencana terkurasi.</small>
+              </span>
+              <input name="aiProcessingConsent" aria-label="Izinkan personalisasi dengan AI" className="switch-input" type="checkbox" checked={draft.aiProcessingConsent} onChange={(event) => update("aiProcessingConsent", event.target.checked)} />
+            </label>
           </div>
         </section>}
 

@@ -11,6 +11,7 @@ export type ProfileSettings = {
   weeklyTargetKg: number;
   activityLevel: ActivityLevel;
   mealPreference: MealPreference;
+  aiProcessingConsent: boolean;
   reminderEnabled: boolean;
   reminderTime: string;
   weeklySummaryEnabled: boolean;

@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requireOnboardedUser } from "@/lib/auth/guards";
-import type { ChatMessage, WorkoutAdjustment } from "./chat.types";
+import type { ChatAdjustment, ChatMessage } from "./chat.types";
 
 const sendMessageSchema = z.object({
   sessionId: z.string().uuid().nullable(),
@@ -21,7 +21,7 @@ type EdgeAssistantMessage = {
   content: string;
   kind: "message" | "adjustment";
   generatedByAi: boolean;
-  adjustment: WorkoutAdjustment | null;
+  adjustment: ChatAdjustment | null;
   createdAt: string;
 };
 
@@ -32,19 +32,23 @@ type ChatEdgeResponse = {
 
 type ResolveEdgeResponse = {
   status: "applied" | "declined";
+  target: "workout" | "food";
   packageId?: string;
+  recommendationSetId?: string;
 };
 
 export type SendChatMessageResult =
   | { ok: true; sessionId: string; assistantMessage: ChatMessage }
   | { ok: false; message: string };
 
-export type ResolveWorkoutAdjustmentResult =
+export type ResolveChatAdjustmentResult =
   | {
       ok: true;
       status: "applied" | "declined";
       message: string;
+      target: "workout" | "food";
       packageId?: string;
+      recommendationSetId?: string;
     }
   | { ok: false; message: string };
 
@@ -89,9 +93,9 @@ export async function sendChatMessageAction(
   };
 }
 
-export async function resolveWorkoutAdjustmentAction(
+export async function resolveChatAdjustmentAction(
   input: z.input<typeof resolveAdjustmentSchema>,
-): Promise<ResolveWorkoutAdjustmentResult> {
+): Promise<ResolveChatAdjustmentResult> {
   const parsed = resolveAdjustmentSchema.safeParse(input);
   if (!parsed.success) {
     return { ok: false, message: "Usulan penyesuaian belum valid." };
@@ -111,7 +115,9 @@ export async function resolveWorkoutAdjustmentAction(
   revalidatePath("/chat");
   if (result.data.status === "applied") {
     revalidatePath("/dashboard");
-    if (result.data.packageId) {
+    if (result.data.target === "food") {
+      revalidatePath("/food");
+    } else if (result.data.packageId) {
       revalidatePath(`/packages/${result.data.packageId}`);
     }
   }
@@ -119,9 +125,15 @@ export async function resolveWorkoutAdjustmentAction(
   return {
     ok: true,
     status: result.data.status,
+    target: result.data.target,
     message: result.data.status === "applied"
-      ? "Paket latihan sudah disesuaikan."
-      : "Paket latihan tetap seperti semula.",
+      ? result.data.target === "food"
+        ? "Rekomendasi makanan sudah disesuaikan."
+        : "Paket latihan sudah disesuaikan."
+      : result.data.target === "food"
+        ? "Rekomendasi makanan tetap seperti semula."
+        : "Paket latihan tetap seperti semula.",
     packageId: result.data.packageId,
+    recommendationSetId: result.data.recommendationSetId,
   };
 }

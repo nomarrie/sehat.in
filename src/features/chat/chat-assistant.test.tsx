@@ -3,14 +3,14 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ChatAssistant } from "./chat-assistant";
 import {
-  resolveWorkoutAdjustmentAction,
+  resolveChatAdjustmentAction,
   sendChatMessageAction,
 } from "./actions";
 import type { ChatPageData } from "./chat.types";
 
 vi.mock("./actions", () => ({
   sendChatMessageAction: vi.fn(),
-  resolveWorkoutAdjustmentAction: vi.fn(),
+  resolveChatAdjustmentAction: vi.fn(),
 }));
 
 const initialData: ChatPageData = {
@@ -35,7 +35,7 @@ const initialData: ChatPageData = {
 describe("ChatAssistant", () => {
   beforeEach(() => {
     vi.mocked(sendChatMessageAction).mockReset();
-    vi.mocked(resolveWorkoutAdjustmentAction).mockReset();
+    vi.mocked(resolveChatAdjustmentAction).mockReset();
   });
 
   it("renders the standalone chat shell with a private conversation and dashboard route", () => {
@@ -177,16 +177,18 @@ describe("ChatAssistant", () => {
         kind: "adjustment",
         generatedByAi: true,
         adjustment: {
+          target: "workout",
           title: "Usulan penyesuaian",
           description: "Turunkan beban hari ini tanpa menghilangkan ritme latihanmu.",
-          changes: ["Chair Squat: 3 × 10 menjadi 2 × 8"],
+          rows: [{ label: "Chair Squat", before: "3 set × 10 repetisi", after: "2 set × 8 repetisi" }],
           status: "pending",
         },
       },
     });
-    vi.mocked(resolveWorkoutAdjustmentAction).mockResolvedValue({
+    vi.mocked(resolveChatAdjustmentAction).mockResolvedValue({
       ok: true,
       status: "applied",
+      target: "workout",
       message: "Paket latihan sudah disesuaikan.",
       packageId: "8f6eb7ee-289f-4c2c-814c-0019c4c87ef8",
     });
@@ -198,15 +200,65 @@ describe("ChatAssistant", () => {
     );
     expect(screen.getByRole("heading", { name: "Usulan penyesuaian" })).toBeInTheDocument();
     expect(screen.getByText(/belum mengubah paket latihanmu/i)).toBeInTheDocument();
-    expect(resolveWorkoutAdjustmentAction).not.toHaveBeenCalled();
+    const table = screen.getByRole("table", { name: "Perbandingan penyesuaian latihan" });
+    expect(within(table).getByRole("columnheader", { name: "Saat ini" })).toBeInTheDocument();
+    expect(within(table).getByRole("cell", { name: "2 set × 8 repetisi" })).toBeInTheDocument();
+    expect(resolveChatAdjustmentAction).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "Terapkan penyesuaian" }));
-    expect(resolveWorkoutAdjustmentAction).toHaveBeenCalledWith({
+    expect(resolveChatAdjustmentAction).toHaveBeenCalledWith({
       messageId: "52187aba-3d8a-41f4-accc-33dc35b4e29a",
       decision: "apply",
     });
     expect(screen.getByRole("status")).toHaveTextContent("Paket latihan sudah disesuaikan.");
     expect(screen.getByRole("button", { name: "Sudah diterapkan" })).toBeDisabled();
+  });
+
+  it("shows and applies a food adjustment table only after confirmation", async () => {
+    vi.mocked(sendChatMessageAction).mockResolvedValue({
+      ok: true,
+      sessionId: initialData.sessionId!,
+      assistantMessage: {
+        id: "53d3cd65-32cd-47ae-b2b8-38ef2fac1208",
+        role: "assistant",
+        content: "Aku menyiapkan usulan menu ayam untuk makan siang.",
+        timeLabel: "Sekarang",
+        kind: "adjustment",
+        generatedByAi: true,
+        adjustment: {
+          target: "food",
+          title: "Usulan penyesuaian makanan",
+          description: "Ganti menu makan siang tanpa mengubah waktu makan lain.",
+          rows: [{ label: "Makan siang", before: "Tempe panggang", after: "Ayam panggang dan sayur" }],
+          status: "pending",
+        },
+      },
+    });
+    vi.mocked(resolveChatAdjustmentAction).mockResolvedValue({
+      ok: true,
+      status: "applied",
+      target: "food",
+      message: "Rekomendasi makanan sudah disesuaikan.",
+      recommendationSetId: "664d32b2-fd29-4874-a2d1-a55547d177eb",
+    });
+    const user = userEvent.setup();
+    render(<ChatAssistant initialData={initialData} />);
+
+    const composer = screen.getByRole("textbox", { name: "Tulis pesan untuk pendamping" });
+    await user.type(composer, "Saya ingin makan ayam hari ini");
+    await user.keyboard("{Enter}");
+
+    expect(screen.getByRole("table", { name: "Perbandingan penyesuaian makanan" })).toBeInTheDocument();
+    expect(screen.getByText(/belum mengubah rekomendasi makananmu/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Pertahankan menu" })).toBeInTheDocument();
+    expect(resolveChatAdjustmentAction).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Terapkan penyesuaian" }));
+    expect(resolveChatAdjustmentAction).toHaveBeenCalledWith({
+      messageId: "53d3cd65-32cd-47ae-b2b8-38ef2fac1208",
+      decision: "apply",
+    });
+    expect(screen.getByRole("status")).toHaveTextContent("Rekomendasi makanan sudah disesuaikan.");
   });
 
   it("keeps Enter-to-send and Shift+Enter for a new line", async () => {

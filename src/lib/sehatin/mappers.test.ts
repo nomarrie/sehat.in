@@ -19,6 +19,7 @@ describe("InsForge row mappers", () => {
         difficulty_level: "pemula",
         purpose: "Membangun ritme gerak.",
         estimated_minutes: 30,
+        generated_by_ai: true,
       },
       [{
         id: "exercise-1",
@@ -34,6 +35,7 @@ describe("InsForge row mappers", () => {
     );
 
     expect(mapped.difficulty).toBe("Pemula");
+    expect(mapped.generatedByAi).toBe(true);
     expect(mapped.exercises[0]).toMatchObject({
       order: 1,
       repetitions: 10,

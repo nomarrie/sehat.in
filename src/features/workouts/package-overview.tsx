@@ -57,7 +57,13 @@ export function PackageOverview({ workoutPackage }: { workoutPackage: ExercisePa
 
       <aside className="demo-notice">
         <InfoIcon size={21} weight="regular" aria-hidden="true" />
-        <p>Rencana ini mengikuti data program terbarumu. Sesuaikan tempo dan berhenti bila tubuh terasa tidak nyaman.</p>
+        <p>
+          <strong>{workoutPackage.generatedByAi ? "Latihan adaptif dengan AI" : "Rencana terkurasi sementara"}</strong>{" "}
+          {workoutPackage.generatedByAi
+            ? "Rencana ini disusun dari progres dan hasil latihan terbarumu."
+            : "Rencana ini mengikuti preferensi dan batas programmu saat personalisasi AI belum dapat digunakan."}{" "}
+          Sesuaikan tempo dan berhenti bila tubuh terasa tidak nyaman.
+        </p>
       </aside>
 
       <section className="sequence-section" aria-labelledby="sequence-title">

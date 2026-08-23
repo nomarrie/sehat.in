@@ -29,4 +29,17 @@ describe("SettingsForm", () => {
     await user.click(screen.getByRole("button", { name: "Simpan perubahan" }));
     expect(screen.getByText(/target aman antara 0,5–1 kg/i)).toBeVisible();
   });
+
+  it("lets existing users explicitly enable AI personalization", async () => {
+    const user = userEvent.setup();
+    render(<SettingsForm initialSettings={profileSettings} mode="program" />);
+
+    const consent = screen.getByRole("checkbox", { name: /izinkan personalisasi dengan ai/i });
+    expect(consent).not.toBeChecked();
+    await user.click(consent);
+    await user.click(screen.getByRole("button", { name: "Simpan perubahan" }));
+
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Perubahan tersimpan"));
+    expect(consent).toBeChecked();
+  });
 });
