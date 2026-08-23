@@ -1010,7 +1010,7 @@ button:disabled {
 }
 
 .back-link:hover {
-  color: var(--accent);
+  color: var(--accent-contrast-surface);
 }
 
 .package-hero {
@@ -1561,7 +1561,7 @@ button:disabled {
 }
 
 .back-link:hover {
-  color: var(--accent);
+  color: var(--accent-contrast-surface);
 }
 
 .food-detail-meta {
@@ -1656,7 +1656,7 @@ button:disabled {
 }
 
 .nutrition-facts > div:first-child dd {
-  color: var(--accent);
+  color: var(--accent-contrast-surface);
   font-size: 1.4rem;
 }
 
@@ -1688,7 +1688,7 @@ button:disabled {
 }
 
 .ingredients-section li strong {
-  color: var(--accent);
+  color: var(--accent-contrast-surface);
   font-size: 0.8rem;
 }
 
@@ -1960,7 +1960,6 @@ button:disabled {
   align-items: center;
   justify-content: center;
   gap: 0.42rem;
-  color: var(--accent);
   font-size: 0.74rem;
   font-weight: 800;
   letter-spacing: 0.06em;
