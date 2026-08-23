@@ -4,8 +4,8 @@ import { BarbellIcon } from "@phosphor-icons/react/dist/ssr/Barbell";
 import { CheckCircleIcon } from "@phosphor-icons/react/dist/ssr/CheckCircle";
 import { EyeIcon } from "@phosphor-icons/react/dist/ssr/Eye";
 import { EyeSlashIcon } from "@phosphor-icons/react/dist/ssr/EyeSlash";
+import { FacebookLogoIcon } from "@phosphor-icons/react/dist/ssr/FacebookLogo";
 import { ForkKnifeIcon } from "@phosphor-icons/react/dist/ssr/ForkKnife";
-import { GithubLogoIcon } from "@phosphor-icons/react/dist/ssr/GithubLogo";
 import { GoogleLogoIcon } from "@phosphor-icons/react/dist/ssr/GoogleLogo";
 import { HeartbeatIcon } from "@phosphor-icons/react/dist/ssr/Heartbeat";
 import { TrendDownIcon } from "@phosphor-icons/react/dist/ssr/TrendDown";
@@ -25,7 +25,7 @@ export type SignInPageProps = {
   pending: boolean;
   formAction: (formData: FormData) => void | Promise<void>;
   onGoogleSignIn: () => void;
-  onGithubSignIn: () => void;
+  onFacebookSignIn: () => void;
 };
 
 const companionItems = [
@@ -46,7 +46,7 @@ export function SignInPage({
   pending,
   formAction,
   onGoogleSignIn,
-  onGithubSignIn,
+  onFacebookSignIn,
 }: SignInPageProps) {
   const [showPassword, setShowPassword] = useState(false);
   const emailError = state.errors?.email;
@@ -134,8 +134,8 @@ export function SignInPage({
             <button className="button button-secondary" type="button" onClick={onGoogleSignIn} disabled={pending}>
               <GoogleLogoIcon size={20} weight="bold" aria-hidden="true" /> Lanjutkan dengan Google
             </button>
-            <button className="button button-secondary" type="button" onClick={onGithubSignIn} disabled={pending}>
-              <GithubLogoIcon size={20} weight="fill" aria-hidden="true" /> Lanjutkan dengan GitHub
+            <button className="button button-secondary" type="button" onClick={onFacebookSignIn} disabled={pending}>
+              <FacebookLogoIcon size={20} weight="fill" aria-hidden="true" /> Lanjutkan dengan Facebook
             </button>
           </div>
 

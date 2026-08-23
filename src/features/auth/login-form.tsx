@@ -8,7 +8,7 @@ export function LoginForm({ notice }: { notice?: string }) {
   const [state, action, pending] = useActionState(signInAction, {});
   const [oauthPending, startOAuthTransition] = useTransition();
 
-  function startOAuth(provider: "google" | "github") {
+  function startOAuth(provider: "google" | "facebook") {
     startOAuthTransition(() => {
       void initiateOAuth(provider);
     });
@@ -21,7 +21,7 @@ export function LoginForm({ notice }: { notice?: string }) {
       pending={pending || oauthPending}
       formAction={action}
       onGoogleSignIn={() => startOAuth("google")}
-      onGithubSignIn={() => startOAuth("github")}
+      onFacebookSignIn={() => startOAuth("facebook")}
     />
   );
 }

@@ -51,7 +51,7 @@ export async function verifyEmailAction(_state: AuthFormState, formData: FormDat
 }
 
 export async function initiateOAuth(provider: string) {
-  if (!new Set(["google", "github"]).has(provider)) redirect("/login?error=provider");
+  if (!new Set(["google", "facebook"]).has(provider)) redirect("/login?error=provider");
   const cookieStore = await cookies();
   const auth = createAuthActions({ ...getInsForgeConfig(), cookies: cookieStore });
   const callbackUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"}/api/auth/callback`;

@@ -6,7 +6,7 @@ import { SignInPage } from "./sign-in";
 const baseProps = {
   formAction: vi.fn(),
   onGoogleSignIn: vi.fn(),
-  onGithubSignIn: vi.fn(),
+  onFacebookSignIn: vi.fn(),
   pending: false,
 };
 
@@ -70,22 +70,24 @@ describe("SignInPage", () => {
   it("invokes the existing OAuth handlers and reflects pending state", async () => {
     const user = userEvent.setup();
     const onGoogleSignIn = vi.fn();
-    const onGithubSignIn = vi.fn();
+    const onFacebookSignIn = vi.fn();
     const { rerender } = render(
       <SignInPage
         {...baseProps}
         onGoogleSignIn={onGoogleSignIn}
-        onGithubSignIn={onGithubSignIn}
+        onFacebookSignIn={onFacebookSignIn}
       />,
     );
 
     await user.click(screen.getByRole("button", { name: "Lanjutkan dengan Google" }));
-    await user.click(screen.getByRole("button", { name: "Lanjutkan dengan GitHub" }));
+    await user.click(screen.getByRole("button", { name: "Lanjutkan dengan Facebook" }));
     expect(onGoogleSignIn).toHaveBeenCalledOnce();
-    expect(onGithubSignIn).toHaveBeenCalledOnce();
+    expect(onFacebookSignIn).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("button", { name: "Lanjutkan dengan GitHub" })).not.toBeInTheDocument();
 
     rerender(<SignInPage {...baseProps} pending />);
     expect(screen.getByRole("button", { name: "Memeriksa akun…" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Lanjutkan dengan Google" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Lanjutkan dengan Facebook" })).toBeDisabled();
   });
 });
