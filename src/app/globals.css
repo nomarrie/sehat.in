@@ -2374,7 +2374,7 @@ dialog::backdrop {
 .sign-in-companion-copy > p:last-child { max-inline-size: 50ch; color: color-mix(in oklch, var(--hero-text), transparent 28%); }
 .sign-in-companion .module-kicker { color: var(--hero-text); }
 .sign-in-companion-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.75rem; }
-.sign-in-companion-card { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0.7rem; padding: 0.9rem; border: 1px solid color-mix(in oklch, var(--hero-text), transparent 84%); border-radius: 1rem; background: color-mix(in oklch, var(--hero-green), var(--hero-text) 7%); }
+.sign-in-companion-card { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0.7rem; padding: 0.9rem; border: 1px solid color-mix(in oklch, var(--hero-text), transparent 84%); border-radius: 1rem; background: white; }
 .sign-in-companion-card > span { display: grid; place-items: center; inline-size: 2.25rem; block-size: 2.25rem; border-radius: 0.75rem; background: var(--hero-text); color: var(--hero-green); }
 .sign-in-companion-card > div { display: grid; gap: 0.05rem; }
 .sign-in-companion-card small,

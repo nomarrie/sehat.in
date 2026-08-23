@@ -4,11 +4,10 @@ import { BarbellIcon } from "@phosphor-icons/react/dist/ssr/Barbell";
 import { CheckCircleIcon } from "@phosphor-icons/react/dist/ssr/CheckCircle";
 import { EyeIcon } from "@phosphor-icons/react/dist/ssr/Eye";
 import { EyeSlashIcon } from "@phosphor-icons/react/dist/ssr/EyeSlash";
-import { FacebookLogoIcon } from "@phosphor-icons/react/dist/ssr/FacebookLogo";
 import { ForkKnifeIcon } from "@phosphor-icons/react/dist/ssr/ForkKnife";
-import { GoogleLogoIcon } from "@phosphor-icons/react/dist/ssr/GoogleLogo";
 import { HeartbeatIcon } from "@phosphor-icons/react/dist/ssr/Heartbeat";
 import { TrendDownIcon } from "@phosphor-icons/react/dist/ssr/TrendDown";
+import Image from "next/image";
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
 
@@ -132,10 +131,26 @@ export function SignInPage({
 
           <div className="sign-in-oauth sign-in-reveal sign-in-delay-10">
             <button className="button button-secondary" type="button" onClick={onGoogleSignIn} disabled={pending}>
-              <GoogleLogoIcon size={20} weight="bold" aria-hidden="true" /> Lanjutkan dengan Google
+              <Image
+                src="/images/auth/google.svg"
+                alt=""
+                width={20}
+                height={20}
+                unoptimized
+                aria-hidden="true"
+              />
+              Lanjutkan dengan Google
             </button>
             <button className="button button-secondary" type="button" onClick={onFacebookSignIn} disabled={pending}>
-              <FacebookLogoIcon size={20} weight="fill" aria-hidden="true" /> Lanjutkan dengan Facebook
+              <Image
+                src="/images/auth/facebook.svg"
+                alt=""
+                width={20}
+                height={20}
+                unoptimized
+                aria-hidden="true"
+              />
+              Lanjutkan dengan Facebook
             </button>
           </div>
 

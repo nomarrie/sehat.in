@@ -81,6 +81,12 @@ describe("SignInPage", () => {
 
     await user.click(screen.getByRole("button", { name: "Lanjutkan dengan Google" }));
     await user.click(screen.getByRole("button", { name: "Lanjutkan dengan Facebook" }));
+    expect(
+      screen.getByRole("button", { name: "Lanjutkan dengan Google" }).querySelector("img"),
+    ).toHaveAttribute("src", "/images/auth/google.svg");
+    expect(
+      screen.getByRole("button", { name: "Lanjutkan dengan Facebook" }).querySelector("img"),
+    ).toHaveAttribute("src", "/images/auth/facebook.svg");
     expect(onGoogleSignIn).toHaveBeenCalledOnce();
     expect(onFacebookSignIn).toHaveBeenCalledOnce();
     expect(screen.queryByRole("button", { name: "Lanjutkan dengan GitHub" })).not.toBeInTheDocument();
