@@ -1,7 +1,7 @@
 import { ArrowRightIcon } from "@phosphor-icons/react/dist/ssr/ArrowRight";
 import { BarbellIcon } from "@phosphor-icons/react/dist/ssr/Barbell";
 import { ClockIcon } from "@phosphor-icons/react/dist/ssr/Clock";
-import Link from "next/link";
+import { OriginLink } from "@/components/ui/origin-button";
 import type { ExercisePackage } from "@/features/workouts/workout.types";
 
 export function TodayWorkout({ workoutPackage }: { workoutPackage: ExercisePackage }) {
@@ -31,10 +31,10 @@ export function TodayWorkout({ workoutPackage }: { workoutPackage: ExercisePacka
         <span>{workoutPackage.exercises.length} gerakan</span>
       </div>
 
-      <Link className="button button-light" href={`/packages/${workoutPackage.id}`}>
+      <OriginLink className="mt-auto w-full" href={`/packages/${workoutPackage.id}`}>
         Buka latihan hari ini
         <ArrowRightIcon size={19} weight="regular" aria-hidden="true" />
-      </Link>
+      </OriginLink>
     </section>
   );
 }
