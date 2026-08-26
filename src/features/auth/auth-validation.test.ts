@@ -1,7 +1,22 @@
 import { describe, expect, it } from "vitest";
-import { onboardingSchema, signUpSchema } from "./auth-validation";
+import { onboardingSchema, signInSchema, signUpSchema } from "./auth-validation";
 
 describe("auth validation", () => {
+  it("records remember me only when the checkbox is explicitly selected", () => {
+    const remembered = signInSchema.parse({
+      email: "naila@example.com",
+      password: "PASSWORD1",
+      rememberMe: "on",
+    });
+    const sessionOnly = signInSchema.parse({
+      email: "naila@example.com",
+      password: "PASSWORD1",
+    });
+
+    expect(remembered.rememberMe).toBe(true);
+    expect(sessionOnly.rememberMe).toBe(false);
+  });
+
   it("requires a strong-enough account password", () => {
     const result = signUpSchema.safeParse({
       name: "Naila Putri",

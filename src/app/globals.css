@@ -2363,6 +2363,7 @@ dialog::backdrop {
 .sign-in-options a { font-weight: 750; text-decoration: underline; text-underline-offset: 0.2em; }
 .sign-in-oauth { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.65rem; }
 .sign-in-oauth .button { inline-size: 100%; min-block-size: 3rem; }
+.sign-in-oauth .button-secondary:hover { border-color: var(--text); background: var(--surface-soft); color: var(--text); }
 .sign-in-companion { position: relative; isolation: isolate; overflow: hidden; display: none; align-content: end; gap: clamp(1.5rem, 4vw, 3rem); min-block-size: calc(100dvh - 2rem); padding: clamp(2.5rem, 5vw, 5.5rem); margin: 1rem; border-radius: 1.25rem; background: var(--hero-green); color: var(--hero-text); }
 .sign-in-companion::before { position: absolute; z-index: -2; inset: 0; background-image: linear-gradient(color-mix(in oklch, var(--hero-text), transparent 94%) 1px, transparent 1px), linear-gradient(90deg, color-mix(in oklch, var(--hero-text), transparent 94%) 1px, transparent 1px); background-size: 3rem 3rem; mask-image: linear-gradient(to bottom, black, transparent 75%); content: ""; }
 .sign-in-orbit { position: absolute; z-index: -1; border: 1px solid color-mix(in oklch, var(--hero-text), transparent 86%); border-radius: 50%; }

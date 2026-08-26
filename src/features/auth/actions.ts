@@ -7,6 +7,11 @@ import { createInsForgeServerClient } from "@/lib/insforge/server";
 import { getInsForgeConfig } from "@/lib/insforge/config";
 import { getBackendErrorMessage } from "@/lib/insforge/errors";
 import {
+  getAuthCookieOptions,
+  getRememberMeCookieOptions,
+  REMEMBER_ME_COOKIE,
+} from "@/lib/insforge/auth-session";
+import {
   onboardingSchema,
   signInSchema,
   signUpSchema,
@@ -19,12 +24,30 @@ function fieldErrors(error: { flatten: () => { fieldErrors: Record<string, strin
 }
 
 export async function signInAction(_state: AuthFormState, formData: FormData): Promise<AuthFormState> {
-  const parsed = signInSchema.safeParse({ email: formData.get("email"), password: formData.get("password") });
+  const parsed = signInSchema.safeParse({
+    email: formData.get("email"),
+    password: formData.get("password"),
+    rememberMe: formData.get("rememberMe"),
+  });
   if (!parsed.success) return { errors: fieldErrors(parsed.error), message: "Periksa kembali data masuk kamu." };
 
-  const auth = createAuthActions({ ...getInsForgeConfig(), cookies: await cookies() });
-  const { error } = await auth.signInWithPassword(parsed.data);
+  const cookieStore = await cookies();
+  const auth = createAuthActions({
+    ...getInsForgeConfig(),
+    cookies: cookieStore,
+    options: getAuthCookieOptions(parsed.data.rememberMe),
+  });
+  const { error } = await auth.signInWithPassword({
+    email: parsed.data.email,
+    password: parsed.data.password,
+  });
   if (error) return { message: getBackendErrorMessage(error, "Email atau kata sandi tidak sesuai.") };
+
+  if (parsed.data.rememberMe) {
+    cookieStore.set(REMEMBER_ME_COOKIE, "1", getRememberMeCookieOptions());
+  } else {
+    cookieStore.delete(REMEMBER_ME_COOKIE);
+  }
   redirect("/dashboard");
 }
 
@@ -64,8 +87,10 @@ export async function initiateOAuth(provider: string) {
 }
 
 export async function signOutAction() {
-  const auth = createAuthActions({ ...getInsForgeConfig(), cookies: await cookies() });
+  const cookieStore = await cookies();
+  const auth = createAuthActions({ ...getInsForgeConfig(), cookies: cookieStore });
   await auth.signOut();
+  cookieStore.delete(REMEMBER_ME_COOKIE);
   redirect("/login");
 }
 

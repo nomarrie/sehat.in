@@ -3,6 +3,7 @@ import { z } from "zod";
 export const signInSchema = z.object({
   email: z.string().trim().email("Masukkan alamat email yang valid."),
   password: z.string().min(1, "Masukkan kata sandi."),
+  rememberMe: z.enum(["on"]).optional().transform((value) => value === "on"),
 });
 
 export const signUpSchema = z.object({

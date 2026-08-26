@@ -23,6 +23,7 @@ describe("SignInPage", () => {
       "autocomplete",
       "current-password",
     );
+    expect(screen.getByRole("checkbox", { name: "Ingat saya" })).not.toBeChecked();
     expect(screen.getByRole("link", { name: "Lupa kata sandi?" })).toHaveAttribute(
       "href",
       "/reset-password",
