@@ -48,6 +48,8 @@ export function SignInPage({
   onFacebookSignIn,
 }: SignInPageProps) {
   const [showPassword, setShowPassword] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const emailError = state.errors?.email;
   const passwordError = state.errors?.password;
 
@@ -84,6 +86,8 @@ export function SignInPage({
                 autoComplete="username"
                 placeholder="nama@email.com"
                 required
+                value={email}
+                onChange={(event) => setEmail(event.currentTarget.value)}
                 aria-invalid={Boolean(emailError)}
                 aria-describedby={emailError ? "login-email-error" : undefined}
               />
@@ -100,6 +104,8 @@ export function SignInPage({
                   autoComplete="current-password"
                   placeholder="Masukkan kata sandi"
                   required
+                  value={password}
+                  onChange={(event) => setPassword(event.currentTarget.value)}
                   aria-invalid={Boolean(passwordError)}
                   aria-describedby={passwordError ? "login-password-error" : undefined}
                 />
@@ -120,7 +126,11 @@ export function SignInPage({
               <Link href="/reset-password">Lupa kata sandi?</Link>
             </div>
 
-            <p className="auth-message" role="status" aria-label="Status masuk" aria-live="polite">{state.message}</p>
+            {state.message ? (
+              <p className="auth-message" role="alert" aria-label="Peringatan masuk">
+                {state.message}
+              </p>
+            ) : null}
 
             <button className="button button-primary auth-submit sign-in-reveal sign-in-delay-8" type="submit" disabled={pending}>
               {pending ? "Memeriksa akun…" : "Masuk"}

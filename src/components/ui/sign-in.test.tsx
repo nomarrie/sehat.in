@@ -63,8 +63,31 @@ describe("SignInPage", () => {
     );
     expect(screen.getByText("Masukkan alamat email yang valid.")).toBeInTheDocument();
     expect(screen.getByText("Kata sandi wajib diisi.")).toBeInTheDocument();
-    expect(screen.getByRole("status", { name: "Status masuk" })).toHaveTextContent(
+    expect(screen.getByRole("alert", { name: "Peringatan masuk" })).toHaveTextContent(
       "Periksa kembali data masuk kamu.",
+    );
+  });
+
+  it("keeps the submitted credentials and warns when sign-in fails", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<SignInPage {...baseProps} />);
+
+    const email = screen.getByRole("textbox", { name: "Email" });
+    const password = screen.getByLabelText("Kata sandi");
+    await user.type(email, "naila@example.com");
+    await user.type(password, "password-yang-salah");
+
+    rerender(
+      <SignInPage
+        {...baseProps}
+        state={{ message: "Email atau kata sandi tidak sesuai." }}
+      />,
+    );
+
+    expect(email).toHaveValue("naila@example.com");
+    expect(password).toHaveValue("password-yang-salah");
+    expect(screen.getByRole("alert", { name: "Peringatan masuk" })).toHaveTextContent(
+      "Email atau kata sandi tidak sesuai.",
     );
   });
 
