@@ -19,7 +19,7 @@ const navigation = [
   {
     href: "/dashboard",
     activePath: "/dashboard" as const,
-    label: "Dashboard",
+    label: "Home",
     icon: HouseIcon,
   },
   {
