@@ -103,7 +103,7 @@
   --secondary: oklch(0.292 0.004 106.62);
   --background: oklch(0.209 0 0);
   --foreground: oklch(0.968 0.008 106.55);
-  --destructive: oklch(0.711 0.148 29.24);
+  --destructive: oklch(71.112% 0.14825 29.214);
   --accent-contrast-surface: oklch(0.292 0.004 106.62);
   --accent-contrast-foreground: var(--primary);
 
@@ -426,10 +426,13 @@ button:disabled {
 
 .profile-initial {
   display: grid;
+  flex: 0 0 2.5rem;
   place-items: center;
   inline-size: 2.5rem;
   block-size: 2.5rem;
   min-inline-size: 2.5rem;
+  min-block-size: 2.5rem;
+  aspect-ratio: 1;
   border: 1px solid var(--accent-contrast-surface);
   border-radius: 50%;
   background: var(--accent-contrast-surface);
@@ -2434,16 +2437,22 @@ dialog::backdrop {
 }
 .profile-hero h1 { font-size: clamp(2rem, 6vw, 3.2rem); }
 .profile-hero p { color: var(--muted); overflow-wrap: anywhere; }
+.profile-hero h1 + p {
+  margin-block-start: 0.4rem;
+}
 .profile-avatar { display: grid; flex: 0 0 auto; place-items: center; inline-size: 4.5rem; block-size: 4.5rem; border-radius: 1.35rem; background: var(--accent-contrast-surface); color: var(--accent-contrast-foreground); font-family: var(--font-plus-jakarta); font-size: 1.7rem; font-weight: 800; }
 .profile-actions { display: grid; gap: 0.75rem; }
-.profile-action-card { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 0.85rem; inline-size: 100%; padding: 1rem; border: 1px solid var(--border-soft); border-radius: 1rem; background: var(--surface); color: var(--text); text-align: start; box-shadow: var(--shadow); }
-.profile-action-card:hover { border-color: var(--accent); }
+.profile-action-card { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 0.85rem; inline-size: 100%; padding: 1rem; border: 1px solid var(--border-soft); border-radius: 1rem; background: var(--surface); color: var(--text); text-align: start; }
+.profile-action-card:hover { border-color: var(--foreground); background-color: var(--surface-soft);}
 .profile-action-card > span:nth-child(2) { display: grid; gap: 0.12rem; }
 .profile-action-card strong { font-size: 0.92rem; }
 .profile-action-card small { color: var(--muted); font-size: 0.76rem; }
 .profile-logout { color: var(--danger); }
 .profile-logout .settings-section-icon { background: color-mix(in oklch, var(--danger), transparent 88%); color: var(--danger); }
 .profile-back-link { display: inline-flex; align-items: center; gap: 0.35rem; inline-size: fit-content; margin-block-end: 0.7rem; color: var(--muted); font-size: 0.78rem; font-weight: 700; }
+.profile-back-link:hover{
+  color: var(--foreground);
+}
 .settings-page {
   display: grid;
   gap: 1rem;
@@ -2465,7 +2474,7 @@ dialog::backdrop {
   border-radius: 0.9rem;
   background: var(--surface);
 }
-.demo-data-note svg { flex: 0 0 auto; color: var(--accent); }
+.demo-data-note svg { flex: 0 0 auto; color: var(--foreground); }
 .demo-data-note span { display: grid; gap: 0.1rem; }
 .demo-data-note strong { font-size: 0.82rem; }
 .demo-data-note small { color: var(--muted); font-size: 0.72rem; }
@@ -2476,7 +2485,6 @@ dialog::backdrop {
   border: 1px solid var(--border-soft);
   border-radius: 1.1rem;
   background: var(--surface);
-  box-shadow: var(--shadow);
 }
 .settings-section-heading { display: flex; gap: 0.8rem; padding-block-end: 1rem; border-block-end: 1px solid var(--border-soft); }
 .settings-section-icon { display: grid; flex: 0 0 auto; place-items: center; inline-size: 2.6rem; block-size: 2.6rem; border-radius: 0.8rem; background: var(--accent-contrast-surface); color: var(--accent-contrast-foreground); }
@@ -2827,6 +2835,10 @@ dialog::backdrop {
     color: var(--danger);
   }
 
+  .sidebar-account-actions li:last-child button:hover {
+    color: #f07a6a;
+  }
+
   .sidebar-account-message {
     min-block-size: 0;
     padding-inline: 0.9rem;
@@ -3172,7 +3184,7 @@ dialog::backdrop {
 
 .chat-safety-note > svg {
   flex: 0 0 auto;
-  color: var(--accent);
+  color: var(--foreground);
 }
 
 .chat-safety-note p {
@@ -3437,7 +3449,7 @@ dialog::backdrop {
 }
 
 .chat-adjustment-status {
-  color: var(--accent);
+  color: var(--foreground);
   font-size: 0.72rem;
   font-weight: 750;
 }
@@ -3472,8 +3484,9 @@ dialog::backdrop {
 }
 
 .chat-quick-prompts button:hover {
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: var(--foreground);
+  color: var(--text);
+  background-color: var(--surface-soft);
 }
 
 .chat-quick-prompts button:disabled,
@@ -3755,8 +3768,8 @@ dialog::backdrop {
 }
 
 .chat-new-thread:hover {
-  border-color: var(--accent);
-  background: var(--surface-raised);
+  border-color: var(--foreground);
+  background: var(--surface-soft);
 }
 
 .chat-new-thread:active {
@@ -3814,7 +3827,6 @@ dialog::backdrop {
   border-color: var(--border-soft);
   background: var(--surface);
   color: var(--text);
-  box-shadow: var(--shadow);
 }
 
 .chat-thread-list button > span {
