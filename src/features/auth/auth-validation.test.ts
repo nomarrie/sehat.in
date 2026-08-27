@@ -17,6 +17,18 @@ describe("auth validation", () => {
     expect(sessionOnly.rememberMe).toBe(false);
   });
 
+  it("treats an unchecked FormData checkbox as a session-only login", () => {
+    const formData = new FormData();
+
+    const result = signInSchema.parse({
+      email: "naila@example.com",
+      password: "PASSWORD1",
+      rememberMe: formData.get("rememberMe"),
+    });
+
+    expect(result.rememberMe).toBe(false);
+  });
+
   it("requires a strong-enough account password", () => {
     const result = signUpSchema.safeParse({
       name: "Naila Putri",
