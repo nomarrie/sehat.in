@@ -13,7 +13,7 @@ export function ProfileOverview({ profile }: { profile: ProfileSettings }) {
     <div className="settings-page profile-page">
       <header className="profile-hero">
         <span className="profile-avatar" aria-hidden="true">{profile.fullName.charAt(0)}</span>
-        <div><span className="eyebrow">Akun saya</span><h1>Profil</h1><p>{profile.fullName} · {profile.email}</p></div>
+        <div><span className="eyebrow">Akun saya</span><h1>{profile.fullName}</h1><p>{profile.email}</p></div>
       </header>
       <section className="profile-actions" aria-label="Kelola profil">
         <Link href="/profile/preferences" className="profile-action-card">

@@ -8,6 +8,10 @@ vi.mock("@/features/auth/actions", () => ({ signOutAction: vi.fn() }));
 describe("ProfileOverview", () => {
   it("shows the three profile actions", () => {
     render(<ProfileOverview profile={profileSettings} />);
+    expect(screen.getByRole("heading", { name: profileSettings.fullName })).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "Profil" })).not.toBeInTheDocument();
+    expect(screen.getByText(profileSettings.email)).toBeVisible();
+    expect(screen.queryByText(`${profileSettings.fullName} · ${profileSettings.email}`)).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: /preferensi pribadi/i })).toHaveAttribute("href", "/profile/preferences");
     expect(screen.getByRole("link", { name: /data program/i })).toHaveAttribute("href", "/profile/program");
     expect(screen.getByRole("button", { name: /keluar/i })).toBeVisible();
