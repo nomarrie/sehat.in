@@ -2,6 +2,7 @@ import type { DashboardData } from "./dashboard.types";
 import { calculateWeeklyProgress } from "./progress";
 import { AchievementSummary } from "./achievement-summary";
 import { EmptyDashboard } from "./empty-dashboard";
+import { LocalTimeGreeting } from "./local-time-greeting";
 import { ProgressNotice } from "./progress-notice";
 import { StreakSummary } from "./streak-summary";
 import { TodayWorkout } from "./today-workout";
@@ -15,7 +16,7 @@ export function DashboardOverview({ data }: { data: DashboardData }) {
       <header className="dashboard-heading">
         <div>
           <p className="date-label">{data.currentDateLabel}</p>
-          <h1>Selamat pagi, {data.user.name}</h1>
+          <LocalTimeGreeting name={data.user.name} />
         </div>
         <p>Fokus pada satu langkah yang bisa kamu selesaikan hari ini.</p>
       </header>
