@@ -54,7 +54,7 @@ export function DesktopProfileMenu({ name, email }: { name: string; email: strin
         className="sidebar-profile-trigger"
         type="button"
         ref={triggerRef}
-        aria-label={`Buka menu profil ${name}`}
+        aria-label={`${isOpen ? "Tutup" : "Buka"} menu profil ${name}`}
         aria-expanded={isOpen}
         aria-controls="sidebar-profile-menu"
         onClick={() => setIsOpen((current) => !current)}
@@ -64,7 +64,9 @@ export function DesktopProfileMenu({ name, email }: { name: string; email: strin
           <strong>{name}</strong>
           <small>Program pemula</small>
         </span>
-        {isOpen ? <CaretUpIcon size={17} aria-hidden="true" /> : <CaretDownIcon size={17} aria-hidden="true" />}
+        <span className="sidebar-profile-caret" aria-hidden="true">
+          {isOpen ? <CaretUpIcon size={17} /> : <CaretDownIcon size={17} />}
+        </span>
       </button>
     </div>
   );

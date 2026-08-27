@@ -1,12 +1,14 @@
 import { BarbellIcon } from "@phosphor-icons/react/dist/ssr/Barbell";
-import { HeartbeatIcon } from "@phosphor-icons/react/dist/ssr/Heartbeat";
 import { HouseIcon } from "@phosphor-icons/react/dist/ssr/House";
 import { ForkKnifeIcon } from "@phosphor-icons/react/dist/ssr/ForkKnife";
 import { ChatCircleDotsIcon } from "@phosphor-icons/react/dist/ssr/ChatCircleDots";
 import { UserCircleIcon } from "@phosphor-icons/react/dist/ssr/UserCircle";
 import Link from "next/link";
+import { cookies } from "next/headers";
 import { requireOnboardedUser } from "@/lib/auth/guards";
-import { DesktopProfileMenu } from "./desktop-profile-menu";
+import { SidebarProvider } from "@/components/ui/sidebar";
+import { AppBrand } from "./app-brand";
+import { AppSidebar } from "./app-sidebar";
 
 export type AppShellProps = {
   activePath: "/dashboard" | "/packages" | "/food" | "/chat" | "/profile";
@@ -46,17 +48,6 @@ const navigation = [
   },
 ];
 
-function Brand() {
-  return (
-    <Link className="brand" href="/dashboard" aria-label="Sehat.in, dashboard">
-      <span className="brand-mark" aria-hidden="true">
-        <HeartbeatIcon size={22} weight="bold" />
-      </span>
-      <span>Sehat.in</span>
-    </Link>
-  );
-}
-
 function NavigationLinks({ activePath, includeProfile = true }: Pick<AppShellProps, "activePath"> & { includeProfile?: boolean }) {
   const items = includeProfile ? navigation : navigation.filter((item) => item.activePath !== "/profile");
   return (
@@ -82,37 +73,44 @@ function NavigationLinks({ activePath, includeProfile = true }: Pick<AppShellPro
 }
 
 export async function AppShell({ activePath, children }: AppShellProps) {
-  const { user, profile } = await requireOnboardedUser();
+  const [{ user, profile }, cookieStore] = await Promise.all([
+    requireOnboardedUser(),
+    cookies(),
+  ]);
+  const defaultSidebarOpen = cookieStore.get("sidebar_state")?.value !== "false";
   const name = String(profile.full_name);
   const initial = name.charAt(0).toLocaleUpperCase("id-ID") || "S";
   return (
-    <div className="app-frame">
+    <SidebarProvider
+      className="app-frame"
+      defaultOpen={defaultSidebarOpen}
+      style={{
+        "--sidebar-width": "15.5rem",
+        "--sidebar-width-icon": "4rem",
+      } as React.CSSProperties}
+    >
       <a className="skip-link" href="#main-content">
         Lewati ke konten utama
       </a>
 
-      <header className="mobile-topbar">
-        <Brand />
-        <Link className="profile-initial" href="/profile" aria-label={`Profil ${name}`}>
-          {initial}
-        </Link>
-      </header>
+      <AppSidebar activePath={activePath} name={name} email={user.email ?? ""} />
 
-      <aside className="desktop-sidebar" aria-label="Navigasi utama">
-        <Brand />
-        <nav aria-label="Menu aplikasi">
-          <NavigationLinks activePath={activePath} includeProfile={false} />
-        </nav>
-        <DesktopProfileMenu name={name} email={user.email ?? ""} />
-      </aside>
+      <div className="app-viewport">
+        <header className="mobile-topbar">
+          <AppBrand />
+          <Link className="profile-initial" href="/profile" aria-label={`Profil ${name}`}>
+            {initial}
+          </Link>
+        </header>
 
-      <main id="main-content" className="app-content" tabIndex={-1}>
-        {children}
-      </main>
+        <main id="main-content" className="app-content" tabIndex={-1}>
+          {children}
+        </main>
+      </div>
 
       <nav className="mobile-navigation" aria-label="Navigasi utama">
         <NavigationLinks activePath={activePath} />
       </nav>
-    </div>
+    </SidebarProvider>
   );
 }

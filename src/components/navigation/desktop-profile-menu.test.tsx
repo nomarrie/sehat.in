@@ -14,6 +14,7 @@ describe("DesktopProfileMenu", () => {
     expect(screen.queryByRole("navigation", { name: "Menu profil" })).not.toBeInTheDocument();
     await user.click(trigger);
     expect(trigger).toHaveAttribute("aria-expanded", "true");
+    expect(trigger).toHaveAccessibleName(/tutup menu profil naila/i);
     expect(screen.getByRole("link", { name: "Preferensi pribadi" })).toHaveAttribute("href", "/profile/preferences");
     expect(screen.getByRole("link", { name: "Data program" })).toHaveAttribute("href", "/profile/program");
     expect(screen.getByRole("button", { name: "Keluar" })).toBeVisible();
