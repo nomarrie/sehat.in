@@ -7,7 +7,8 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
 };
 
-const defaultModel = "openai/gpt-oss-120b";
+const defaultPrimaryModel = "qwen/qwen3.8-27b";
+const defaultSecondaryModel = "openai/gpt-oss-120b";
 const groqChatCompletionsUrl = "https://api.groq.com/openai/v1/chat/completions";
 const modelTimeoutMs = 25_000;
 const AI_CONSENT_VERSION = "2026-08-14";
@@ -491,16 +492,21 @@ async function loadChatContext(
   };
 }
 
-async function callGroq<T>(
+function getGroqModels() {
+  return {
+    primary: Deno.env.get("GROQ_PRIMARY_MODEL") ?? defaultPrimaryModel,
+    secondary: Deno.env.get("GROQ_SECONDARY_MODEL") ?? defaultSecondaryModel,
+  };
+}
+
+async function callGroqModel<T>(
   parser: z.ZodType<T>,
   schemaName: string,
   messages: Array<{ role: "system" | "user" | "assistant"; content: string }>,
   maxCompletionTokens: number,
+  apiKey: string,
+  model: string,
 ): Promise<ModelResult<T>> {
-  const apiKey = Deno.env.get("GROQ_API_KEY");
-  const model = Deno.env.get("GROQ_CHAT_MODEL") ?? defaultModel;
-  if (!apiKey) return { ok: false, code: "groq_unconfigured", model };
-
   try {
     const aiResponse = await fetch(groqChatCompletionsUrl, {
       method: "POST",
@@ -552,6 +558,47 @@ async function callGroq<T>(
       : "groq_request_failed";
     return { ok: false, code, model };
   }
+}
+
+async function callGroq<T>(
+  parser: z.ZodType<T>,
+  schemaName: string,
+  messages: Array<{ role: "system" | "user" | "assistant"; content: string }>,
+  maxCompletionTokens: number,
+): Promise<ModelResult<T>> {
+  const apiKey = Deno.env.get("GROQ_API_KEY");
+  const { primary, secondary } = getGroqModels();
+  if (!apiKey) return { ok: false, code: "groq_unconfigured", model: primary };
+
+  const primaryResult = await callGroqModel(
+    parser,
+    schemaName,
+    messages,
+    maxCompletionTokens,
+    apiKey,
+    primary,
+  );
+  if (primaryResult.ok || secondary === primary) return primaryResult;
+
+  console.warn("Groq primary model failed; trying secondary", {
+    model: primary,
+    code: primaryResult.code,
+  });
+  const secondaryResult = await callGroqModel(
+    parser,
+    schemaName,
+    messages,
+    maxCompletionTokens,
+    apiKey,
+    secondary,
+  );
+  if (secondaryResult.ok) return secondaryResult;
+
+  return {
+    ok: false,
+    code: `groq_fallback_exhausted:${primaryResult.code}:${secondaryResult.code}`,
+    model: secondary,
+  };
 }
 
 async function claimAiRequest(
@@ -780,7 +827,7 @@ async function tryAiPlan(
   context: UserContext,
   reason: GenerationReason,
 ): Promise<ModelResult<GeneratedPlan>> {
-  const model = Deno.env.get("GROQ_CHAT_MODEL") ?? defaultModel;
+  const model = getGroqModels().primary;
   if (!hasCurrentAiConsent(context.profile)) {
     return { ok: false, code: "ai_consent_missing", model };
   }
@@ -1180,7 +1227,7 @@ async function tryAiChat(
   context: ChatContext,
   history: Array<{ role: "user" | "assistant"; content: string }>,
 ): Promise<ModelResult<ChatReply>> {
-  const model = Deno.env.get("GROQ_CHAT_MODEL") ?? defaultModel;
+  const model = getGroqModels().primary;
   if (!hasCurrentAiConsent(context.profile)) {
     return { ok: false, code: "ai_consent_missing", model };
   }

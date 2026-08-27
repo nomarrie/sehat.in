@@ -8,9 +8,12 @@ const functionSource = readFileSync(
 );
 
 describe("Sehat.in direct Groq inference contract", () => {
-  it("calls Groq directly with GPT-OSS 120B", () => {
+  it("uses Qwen 3.8 27B first and GPT-OSS 120B as the Groq fallback", () => {
     expect(functionSource).toContain(
-      'const defaultModel = "openai/gpt-oss-120b";',
+      'const defaultPrimaryModel = "qwen/qwen3.8-27b";',
+    );
+    expect(functionSource).toContain(
+      'const defaultSecondaryModel = "openai/gpt-oss-120b";',
     );
     expect(functionSource).toContain(
       'const groqChatCompletionsUrl = "https://api.groq.com/openai/v1/chat/completions";',
@@ -19,6 +22,12 @@ describe("Sehat.in direct Groq inference contract", () => {
       'const apiKey = Deno.env.get("GROQ_API_KEY");',
     );
     expect(functionSource).toContain("fetch(groqChatCompletionsUrl");
+    expect(functionSource).toContain('Deno.env.get("GROQ_PRIMARY_MODEL")');
+    expect(functionSource).toContain('Deno.env.get("GROQ_SECONDARY_MODEL")');
+    expect(functionSource).toContain("const primaryResult = await callGroqModel(");
+    expect(functionSource).toContain("const secondaryResult = await callGroqModel(");
+    expect(functionSource).toContain("if (secondaryResult.ok) return secondaryResult;");
+    expect(functionSource).toContain("groq_fallback_exhausted:");
     expect(functionSource).not.toContain("openrouter.ai");
     expect(functionSource).not.toContain("OPENROUTER_");
     expect(functionSource).not.toMatch(/provider:\s*\{/);
@@ -34,7 +43,7 @@ describe("Sehat.in direct Groq inference contract", () => {
     );
   });
 
-  it("keeps deterministic fallbacks for program and chat inference failures", () => {
+  it("keeps deterministic fallbacks after both LLM attempts fail", () => {
     expect(functionSource).toContain(
       "const plan = modelResult.ok ? modelResult.data : fallbackPlan(context, reason);",
     );
