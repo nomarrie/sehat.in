@@ -18,6 +18,10 @@ describe("FoodRecommendationsOverview", () => {
     expect(
       screen.getByRole("heading", { level: 1, name: "Makan enak, tetap terarah" }),
     ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /kembali ke dashboard/i })).toHaveAttribute(
+      "href",
+      "/dashboard",
+    );
     expect(screen.getByText(/88,7 kg/i)).toBeInTheDocument();
 
     const items = screen.getAllByRole("listitem");

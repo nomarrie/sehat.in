@@ -24,27 +24,34 @@ export function FoodRecommendationsOverview({
 }: FoodRecommendationsOverviewProps) {
   return (
     <div className="food-overview">
-      <header className="food-hero">
-        <div className="food-hero-copy">
-          <p className="module-kicker">Rekomendasi hari ini</p>
-          <h1>Makan enak, tetap terarah</h1>
-          <p>
-            Empat pilihan sederhana untuk menemani harimu, lengkap dengan gizi dan
-            langkah memasak.
-          </p>
-        </div>
+      <div className="food-overview-header">
+        <Link className="back-link" href="/dashboard">
+          <ArrowLeftIcon size={18} weight="regular" aria-hidden="true" />
+          Kembali ke dashboard
+        </Link>
 
-        <div className="food-context" aria-label="Dasar rekomendasi">
-          <span className="food-context-icon" aria-hidden="true">
-            <ScalesIcon size={26} weight="regular" />
-          </span>
-          <span>
-            <small>Berdasarkan berat terbaru</small>
-            <strong>{idNumberFormat.format(context.basedOnWeight)} kg</strong>
-            <small>{context.updatedLabel}</small>
-          </span>
-        </div>
-      </header>
+        <header className="food-hero">
+          <div className="food-hero-copy">
+            <p className="module-kicker">Rekomendasi hari ini</p>
+            <h1>Makan enak, tetap terarah</h1>
+            <p>
+              Empat pilihan sederhana untuk menemani harimu, lengkap dengan gizi dan
+              langkah memasak.
+            </p>
+          </div>
+
+          <div className="food-context" aria-label="Dasar rekomendasi">
+            <span className="food-context-icon" aria-hidden="true">
+              <ScalesIcon size={26} weight="regular" />
+            </span>
+            <span>
+              <small>Berdasarkan berat terbaru</small>
+              <strong>{idNumberFormat.format(context.basedOnWeight)} kg</strong>
+              <small>{context.updatedLabel}</small>
+            </span>
+          </div>
+        </header>
+      </div>
 
       {recommendations.length > 0 ? (
         <section className="food-day-plan" aria-labelledby="food-day-plan-title">
@@ -71,10 +78,6 @@ export function FoodRecommendationsOverview({
           </span>
           <h2>Belum ada rekomendasi makanan</h2>
           <p>Data contoh untuk menu hari ini belum tersedia.</p>
-          <Link className="button button-secondary" href="/dashboard">
-            <ArrowLeftIcon size={18} weight="regular" aria-hidden="true" />
-            Kembali ke dashboard
-          </Link>
         </section>
       )}
 

@@ -1446,6 +1446,10 @@ button:disabled {
   gap: 1rem;
 }
 
+.food-overview-header {
+  display: grid;
+}
+
 .food-hero,
 .food-detail-hero {
   display: grid;
