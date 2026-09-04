@@ -24,6 +24,7 @@ describe("ChatPage", () => {
     loadChatPageData.mockResolvedValue({
       sessionId: null,
       context: [],
+      threads: [],
       messages: [{
         id: "assistant-welcome",
         role: "assistant",

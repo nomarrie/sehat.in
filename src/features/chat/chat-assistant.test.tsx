@@ -6,12 +6,57 @@ import {
   resolveChatAdjustmentAction,
   sendChatMessageAction,
 } from "./actions";
-import type { ChatPageData } from "./chat.types";
+import type { ChatPageData, ChatThread } from "./chat.types";
 
 vi.mock("./actions", () => ({
   sendChatMessageAction: vi.fn(),
   resolveChatAdjustmentAction: vi.fn(),
 }));
+
+const latestMessages: ChatPageData["messages"] = [
+  {
+    id: "assistant-welcome",
+    role: "assistant",
+    content: "Halo, Naila. Aku sudah melihat progres terbarumu.",
+    timeLabel: "Sekarang",
+    kind: "message",
+    generatedByAi: false,
+  },
+];
+
+const recentThreads: ChatThread[] = [
+  {
+    id: "3a3651dd-004f-42f8-95f9-b96f9aa03e18",
+    title: "Progres minggu ini",
+    preview: "Aku sudah melihat progres terbarumu.",
+    timeLabel: "Hari ini",
+    messages: latestMessages,
+  },
+  {
+    id: "7bd30db7-19dc-49f4-b229-9c3a33d28a9c",
+    title: "Ide makan setelah latihan",
+    preview: "Coba padukan protein, sayur, dan karbohidrat secukupnya.",
+    timeLabel: "Kemarin",
+    messages: [
+      {
+        id: "older-user-message",
+        role: "user",
+        content: "Ide makan setelah latihan",
+        timeLabel: "18.20",
+        kind: "message",
+        generatedByAi: false,
+      },
+      {
+        id: "older-assistant-message",
+        role: "assistant",
+        content: "Coba padukan protein, sayur, dan karbohidrat secukupnya.",
+        timeLabel: "18.21",
+        kind: "message",
+        generatedByAi: true,
+      },
+    ],
+  },
+];
 
 const initialData: ChatPageData = {
   sessionId: "3a3651dd-004f-42f8-95f9-b96f9aa03e18",
@@ -20,16 +65,8 @@ const initialData: ChatPageData = {
     { id: "streak", label: "Streak aktif", value: "6 hari", detail: "22 dari 30 menit hari ini" },
     { id: "workout", label: "Paket aktif", value: "Latihan Hari Ini", detail: "Pemula · sekitar 28 menit" },
   ],
-  messages: [
-    {
-      id: "assistant-welcome",
-      role: "assistant",
-      content: "Halo, Naila. Aku sudah melihat progres terbarumu.",
-      timeLabel: "Sekarang",
-      kind: "message",
-      generatedByAi: false,
-    },
-  ],
+  messages: latestMessages,
+  threads: recentThreads,
 };
 
 describe("ChatAssistant", () => {
@@ -56,7 +93,8 @@ describe("ChatAssistant", () => {
       "true",
     );
     expect(screen.queryByText("Ringkasanmu")).not.toBeInTheDocument();
-    expect(screen.getByText(/aku sudah melihat progres terbarumu/i)).toBeInTheDocument();
+    expect(within(screen.getByRole("list", { name: "Percakapan" }))
+      .getByText(/aku sudah melihat progres terbarumu/i)).toBeInTheDocument();
     expect(screen.getByText("Percakapan privat")).toBeInTheDocument();
   });
 
@@ -66,12 +104,119 @@ describe("ChatAssistant", () => {
 
     await user.click(screen.getByRole("button", { name: "Percakapan baru" }));
     expect(screen.getByRole("heading", { name: "Mulai percakapan baru" })).toBeInTheDocument();
-    expect(screen.queryByText(/aku sudah melihat progres terbarumu/i)).not.toBeInTheDocument();
+    expect(within(screen.getByRole("list", { name: "Percakapan" }))
+      .queryByText(/aku sudah melihat progres terbarumu/i)).not.toBeInTheDocument();
 
     const latestThread = screen.getByRole("button", { name: /progres minggu ini/i });
     await user.click(latestThread);
     expect(latestThread).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByText(/aku sudah melihat progres terbarumu/i)).toBeInTheDocument();
+    expect(within(screen.getByRole("list", { name: "Percakapan" }))
+      .getByText(/aku sudah melihat progres terbarumu/i)).toBeInTheDocument();
+  });
+
+  it("scrolls only the message feed when conversation content changes", () => {
+    const scrollIntoView = vi.fn();
+    const originalScrollIntoView = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "scrollIntoView",
+    );
+    const originalScrollHeight = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "scrollHeight",
+    );
+
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+    Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+      configurable: true,
+      get: () => 1200,
+    });
+
+    try {
+      render(<ChatAssistant initialData={initialData} />);
+
+      const feed = screen.getByRole("list", { name: "Percakapan" });
+      expect(feed.scrollTop).toBe(1200);
+      expect(scrollIntoView).not.toHaveBeenCalled();
+    } finally {
+      if (originalScrollIntoView) {
+        Object.defineProperty(
+          HTMLElement.prototype,
+          "scrollIntoView",
+          originalScrollIntoView,
+        );
+      } else {
+        Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
+      }
+      if (originalScrollHeight) {
+        Object.defineProperty(
+          HTMLElement.prototype,
+          "scrollHeight",
+          originalScrollHeight,
+        );
+      } else {
+        Reflect.deleteProperty(HTMLElement.prototype, "scrollHeight");
+      }
+    }
+  });
+
+  it("shows recent conversations and switches to a selected persisted thread", async () => {
+    const user = userEvent.setup();
+    render(<ChatAssistant initialData={initialData} />);
+
+    const historySidebar = screen.getByRole("complementary", { name: "Riwayat percakapan" });
+    const olderThread = within(historySidebar).getByRole("button", {
+      name: /ide makan setelah latihan/i,
+    });
+    expect(screen.getByRole("combobox", { name: "Riwayat percakapan" })).toHaveValue(
+      initialData.sessionId,
+    );
+
+    await user.click(olderThread);
+
+    expect(olderThread).toHaveAttribute("aria-pressed", "true");
+    const conversation = within(screen.getByRole("list", { name: "Percakapan" }));
+    expect(conversation.getByText(/padukan protein, sayur/i)).toBeInTheDocument();
+    expect(conversation.queryByText(/aku sudah melihat progres terbarumu/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Riwayat percakapan" })).toHaveValue(
+      recentThreads[1].id,
+    );
+  });
+
+  it("continues the selected historical conversation", async () => {
+    vi.mocked(sendChatMessageAction).mockResolvedValue({
+      ok: true,
+      sessionId: recentThreads[1].id,
+      assistantMessage: {
+        id: "f7f9d2eb-cac6-4c1a-b20a-c82aecb6e559",
+        role: "assistant",
+        content: "Boleh, pilih porsi yang terasa cukup dan nyaman untukmu.",
+        timeLabel: "Sekarang",
+        kind: "message",
+        generatedByAi: true,
+      },
+    });
+    const user = userEvent.setup();
+    render(<ChatAssistant initialData={initialData} />);
+
+    const historySidebar = screen.getByRole("complementary", { name: "Riwayat percakapan" });
+    await user.click(within(historySidebar).getByRole("button", {
+      name: /ide makan setelah latihan/i,
+    }));
+    await user.type(
+      screen.getByRole("textbox", { name: "Tulis pesan untuk pendamping" }),
+      "Boleh ditambah buah?",
+    );
+    await user.keyboard("{Enter}");
+
+    expect(sendChatMessageAction).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: recentThreads[1].id,
+      content: "Boleh ditambah buah?",
+    }));
+    expect(within(screen.getByRole("list", { name: "Percakapan" }))
+      .getByText(/pilih porsi yang terasa cukup/i)).toBeInTheDocument();
   });
 
   it("renders assistant Markdown as semantic React elements while keeping user text literal", () => {
@@ -140,8 +285,9 @@ describe("ChatAssistant", () => {
       content: "Kenapa target minggu ini belum berubah?",
       clientMessageId: expect.any(String),
     }));
-    expect(screen.getByText("Kenapa target minggu ini belum berubah?")).toBeInTheDocument();
-    expect(screen.getByText(/target minggu ini tetap aman/i)).toBeInTheDocument();
+    const conversation = within(screen.getByRole("list", { name: "Percakapan" }));
+    expect(conversation.getByText("Kenapa target minggu ini belum berubah?")).toBeInTheDocument();
+    expect(conversation.getByText(/target minggu ini tetap aman/i)).toBeInTheDocument();
     expect(composer).toHaveValue("");
   });
 
@@ -159,7 +305,8 @@ describe("ChatAssistant", () => {
     );
     await user.keyboard("{Enter}");
 
-    expect(screen.getAllByText("Ide makan setelah latihan")).toHaveLength(2);
+    expect(within(screen.getByRole("list", { name: "Percakapan" }))
+      .getByText("Ide makan setelah latihan")).toBeInTheDocument();
     expect(screen.getByRole("alert")).toHaveTextContent(
       "Pendamping belum dapat merespons. Coba lagi sebentar.",
     );

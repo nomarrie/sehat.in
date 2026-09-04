@@ -23,7 +23,8 @@ import {
   resolveChatAdjustmentAction,
   sendChatMessageAction,
 } from "./actions";
-import type { ChatMessage, ChatPageData } from "./chat.types";
+import { createChatThread } from "./chat-history";
+import type { ChatMessage, ChatPageData, ChatThread } from "./chat.types";
 
 const assistantMarkdownComponents: Components = {
   h1: "h3",
@@ -34,18 +35,35 @@ const assistantMarkdownComponents: Components = {
   },
 };
 
+function updateAdjustmentStatus(
+  messages: ChatMessage[],
+  messageId: string,
+  status: "applied" | "declined",
+) {
+  return messages.map((message) =>
+    message.id === messageId && message.adjustment
+      ? {
+          ...message,
+          adjustment: { ...message.adjustment, status },
+        }
+      : message,
+  );
+}
+
 export function ChatAssistant({ initialData }: { initialData: ChatPageData }) {
   const [messages, setMessages] = useState(initialData.messages);
   const [sessionId, setSessionId] = useState(initialData.sessionId);
+  const [threads, setThreads] = useState(initialData.threads);
   const [draft, setDraft] = useState("");
   const [requestError, setRequestError] = useState<string | null>(null);
-  const [activeThreadId, setActiveThreadId] = useState("current");
+  const [activeThreadId, setActiveThreadId] = useState(initialData.sessionId ?? "");
   const [isPending, startTransition] = useTransition();
-  const scrollAnchor = useRef<HTMLLIElement>(null);
+  const feedRef = useRef<HTMLOListElement>(null);
 
   useEffect(() => {
-    if (typeof scrollAnchor.current?.scrollIntoView === "function") {
-      scrollAnchor.current.scrollIntoView({ block: "end" });
+    const feed = feedRef.current;
+    if (feed) {
+      feed.scrollTop = feed.scrollHeight;
     }
   }, [messages, requestError]);
 
@@ -62,15 +80,16 @@ export function ChatAssistant({ initialData }: { initialData: ChatPageData }) {
       kind: "message",
       generatedByAi: false,
     };
+    const currentMessages = messages;
+    const currentSessionId = sessionId;
 
-    setActiveThreadId("current");
     setMessages((current) => [...current, userMessage]);
     setDraft("");
     setRequestError(null);
 
     startTransition(async () => {
       const result = await sendChatMessageAction({
-        sessionId,
+        sessionId: currentSessionId,
         clientMessageId,
         content: cleanMessage,
       });
@@ -80,8 +99,20 @@ export function ChatAssistant({ initialData }: { initialData: ChatPageData }) {
         return;
       }
 
+      const updatedMessages = [...currentMessages, userMessage, result.assistantMessage];
+      const updatedThread = createChatThread({
+        id: result.sessionId,
+        messages: updatedMessages,
+        timeLabel: "Hari ini",
+      });
+
       setSessionId(result.sessionId);
-      setMessages((current) => [...current, result.assistantMessage]);
+      setActiveThreadId(result.sessionId);
+      setMessages(updatedMessages);
+      setThreads((current) => [
+        updatedThread,
+        ...current.filter((thread) => thread.id !== result.sessionId),
+      ].slice(0, 10));
     });
   }
 
@@ -96,14 +127,13 @@ export function ChatAssistant({ initialData }: { initialData: ChatPageData }) {
         return;
       }
 
-      setMessages((current) => current.map((message) =>
-        message.id === messageId && message.adjustment
-          ? {
-              ...message,
-              adjustment: { ...message.adjustment, status: result.status },
-            }
-          : message,
-      ));
+      setMessages((current) => updateAdjustmentStatus(current, messageId, result.status));
+      setThreads((current) => current.map((thread) => thread.id === sessionId
+        ? {
+            ...thread,
+            messages: updateAdjustmentStatus(thread.messages, messageId, result.status),
+          }
+        : thread));
     });
   }
 
@@ -127,12 +157,12 @@ export function ChatAssistant({ initialData }: { initialData: ChatPageData }) {
     setActiveThreadId("");
   }
 
-  function restoreLatestConversation() {
-    setMessages(initialData.messages);
-    setSessionId(initialData.sessionId);
+  function selectThread(thread: ChatThread) {
+    setMessages(thread.messages);
+    setSessionId(thread.id);
     setDraft("");
     setRequestError(null);
-    setActiveThreadId("current");
+    setActiveThreadId(thread.id);
   }
 
   return (
@@ -182,25 +212,31 @@ export function ChatAssistant({ initialData }: { initialData: ChatPageData }) {
           <nav className="chat-thread-navigation" aria-labelledby="chat-thread-title">
             <h2 id="chat-thread-title">Percakapan</h2>
             <ul className="chat-thread-list" role="list">
-              <li>
-                <button
-                  className={activeThreadId === "current" ? "is-active" : undefined}
-                  type="button"
-                  aria-pressed={activeThreadId === "current"}
-                  onClick={restoreLatestConversation}
-                >
-                  <ChatsCircleIcon
-                    size={18}
-                    weight={activeThreadId === "current" ? "fill" : "regular"}
-                    aria-hidden="true"
-                  />
-                  <span>
-                    <strong>Progres minggu ini</strong>
-                    <small>Latihan, makanan, dan progres terbarumu</small>
-                  </span>
-                  <time>Hari ini</time>
-                </button>
-              </li>
+              {threads.map((thread) => (
+                <li key={thread.id}>
+                  <button
+                    className={activeThreadId === thread.id ? "is-active" : undefined}
+                    type="button"
+                    aria-pressed={activeThreadId === thread.id}
+                    disabled={isPending}
+                    onClick={() => selectThread(thread)}
+                  >
+                    <ChatsCircleIcon
+                      size={18}
+                      weight={activeThreadId === thread.id ? "fill" : "regular"}
+                      aria-hidden="true"
+                    />
+                    <span>
+                      <strong>{thread.title}</strong>
+                      <small>{thread.preview}</small>
+                    </span>
+                    <time>{thread.timeLabel}</time>
+                  </button>
+                </li>
+              ))}
+              {threads.length === 0 ? (
+                <li className="chat-thread-empty">Belum ada percakapan tersimpan.</li>
+              ) : null}
             </ul>
           </nav>
 
@@ -218,7 +254,30 @@ export function ChatAssistant({ initialData }: { initialData: ChatPageData }) {
           aria-label="Percakapan dengan pendamping Sehat.in"
           aria-busy={isPending}
         >
-          <ol className="chat-feed" aria-label="Percakapan" aria-live="polite">
+          <div className="chat-mobile-history">
+            <label htmlFor="chat-mobile-thread">Riwayat percakapan</label>
+            <select
+              id="chat-mobile-thread"
+              value={activeThreadId}
+              disabled={isPending}
+              onChange={(event) => {
+                const thread = threads.find((item) => item.id === event.target.value);
+                if (thread) selectThread(thread);
+                else startNewConversation();
+              }}
+            >
+              <option value="">Percakapan baru</option>
+              {threads.map((thread) => (
+                <option value={thread.id} key={thread.id}>{thread.title}</option>
+              ))}
+            </select>
+          </div>
+          <ol
+            ref={feedRef}
+            className="chat-feed"
+            aria-label="Percakapan"
+            aria-live="polite"
+          >
             {messages.length === 0 ? (
               <li className="chat-empty-state">
                 <span className="chat-message-avatar" aria-hidden="true">
@@ -321,7 +380,6 @@ export function ChatAssistant({ initialData }: { initialData: ChatPageData }) {
                 </div>
               </li>
             ))}
-            <li ref={scrollAnchor} className="chat-scroll-anchor" aria-hidden="true" />
           </ol>
 
           <div className="chat-input-area">

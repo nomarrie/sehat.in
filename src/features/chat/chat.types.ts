@@ -46,5 +46,6 @@ export type ChatPageData = {
   sessionId: string | null;
   context: ChatContextItem[];
   messages: ChatMessage[];
+  threads: ChatThread[];
 };
 

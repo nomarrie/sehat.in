@@ -1,7 +1,15 @@
 import "server-only";
 
 import type { DashboardData } from "@/features/dashboard/dashboard.types";
-import type { ChatAdjustment, ChatMessage, ChatPageData } from "@/features/chat/chat.types";
+import {
+  createChatThread,
+  formatChatThreadTimeLabel,
+} from "@/features/chat/chat-history";
+import type {
+  ChatAdjustment,
+  ChatMessage,
+  ChatPageData,
+} from "@/features/chat/chat.types";
 import type { FoodRecommendation, FoodRecommendationContext } from "@/features/food/food.types";
 import type { ProfileSettings } from "@/features/settings/settings.types";
 import type { ExercisePackage } from "@/features/workouts/workout.types";
@@ -255,34 +263,41 @@ export async function loadChatPageData(): Promise<ChatPageData> {
     loadPackageWithClient(client),
     client.database
       .from("chat_sessions")
-      .select("id")
+      .select("id, updated_at")
       .eq("user_id", user.id)
       .order("updated_at", { ascending: false })
-      .limit(1),
+      .limit(10),
   ]);
   [logsResult, streakResult, sessionsResult, sessionResult].forEach((result, index) => {
     assertNoError(result.error, `Gagal memuat konteks chat (${index + 1})`);
   });
 
-  const sessionId = sessionResult.data?.[0]?.id
-    ? String(sessionResult.data[0].id)
-    : null;
-  let messages: ChatMessage[] = [];
-
-  if (sessionId) {
-    const messageResult = await client.database
+  const sessionRows = (sessionResult.data ?? []) as Array<{
+    id: string;
+    updated_at: string;
+  }>;
+  const timeFormatter = new Intl.DateTimeFormat("id-ID", {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: profile.time_zone,
+  });
+  const messageResults = await Promise.all(sessionRows.map((session) => (
+    client.database
       .from("chat_messages")
       .select("id, role, content, kind, generated_by_ai, adjustment_payload, adjustment_status, created_at")
-      .eq("session_id", sessionId)
-      .order("created_at", { ascending: true })
-      .limit(100);
-    assertNoError(messageResult.error, "Gagal memuat riwayat chat");
-    const timeFormatter = new Intl.DateTimeFormat("id-ID", {
-      hour: "2-digit",
-      minute: "2-digit",
-      timeZone: profile.time_zone,
-    });
-    messages = (messageResult.data ?? []).flatMap((row): ChatMessage[] => {
+      .eq("user_id", user.id)
+      .eq("session_id", session.id)
+      .order("created_at", { ascending: false })
+      .limit(100)
+  )));
+
+  messageResults.forEach((result, index) => {
+    assertNoError(result.error, `Gagal memuat riwayat chat (${index + 1})`);
+  });
+
+  const threads = sessionRows.map((session, index) => {
+    const rows = [...(messageResults[index]?.data ?? [])].reverse();
+    const threadMessages = rows.flatMap((row): ChatMessage[] => {
       if (row.role !== "assistant" && row.role !== "user") return [];
       const kind = row.kind === "adjustment" ? "adjustment" : "message";
       return [{
@@ -297,7 +312,18 @@ export async function loadChatPageData(): Promise<ChatPageData> {
           : undefined,
       }];
     });
-  }
+
+    return createChatThread({
+      id: String(session.id),
+      messages: threadMessages,
+      timeLabel: formatChatThreadTimeLabel(
+        String(session.updated_at),
+        profile.time_zone,
+      ),
+    });
+  });
+  const sessionId = threads[0]?.id ?? null;
+  let messages: ChatMessage[] = threads[0]?.messages ?? [];
 
   if (messages.length === 0) {
     const firstName = profile.full_name.trim().split(/\s+/)[0] || "teman";
@@ -329,6 +355,7 @@ export async function loadChatPageData(): Promise<ChatPageData> {
 
   return {
     sessionId,
+    threads,
     context: [
       {
         id: "weight",
