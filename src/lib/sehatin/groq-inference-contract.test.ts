@@ -45,7 +45,7 @@ describe("Sehat.in direct Groq inference contract", () => {
 
   it("keeps deterministic fallbacks after both LLM attempts fail", () => {
     expect(functionSource).toContain(
-      "const plan = modelResult.ok ? modelResult.data : fallbackPlan(context, reason);",
+      "const plan = modelResult.ok ? modelResult.data : fallbackPlan(context, reason, scheduledFor);",
     );
     expect(functionSource).toContain(
       "const reply = modelResult.ok ? modelResult.data : fallback;",
@@ -79,5 +79,23 @@ describe("Sehat.in direct Groq inference contract", () => {
     expect(functionSource).toMatch(
       /edge_complete_workout_session[\s\S]*generateAndPersist\([\s\S]*"workout-complete"/,
     );
+  });
+
+  it("ensures one date-scoped workout and meal plan on daily access", () => {
+    expect(functionSource).toContain('action: z.literal("ensure-daily-plan")');
+    expect(functionSource).toContain('type GenerationReason = "onboarding" | "weight-update" | "workout-complete" | "daily-refresh";');
+    expect(functionSource).toMatch(
+      /action === "ensure-daily-plan"[\s\S]*ensureDailyPlan/,
+    );
+    expect(functionSource).toMatch(
+      /nutrition_recommendation_sets[\s\S]*scheduled_for:/,
+    );
+    expect(functionSource).toContain("daily-refresh");
+  });
+
+  it("asks generated daily plans to differ from the previous day and supports recovery", () => {
+    expect(functionSource).toContain("pemulihan aktif");
+    expect(functionSource).toContain("hindari mengulang persis");
+    expect(functionSource).toContain("previousMeals");
   });
 });

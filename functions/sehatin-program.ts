@@ -112,6 +112,9 @@ const requestSchema = z.discriminatedUnion("action", [
     requestId: z.string().uuid().optional(),
   }),
   z.object({
+    action: z.literal("ensure-daily-plan"),
+  }),
+  z.object({
     action: z.literal("record-weight"),
     weightKg: z.number().min(30).max(300),
     loggedOn: z.string().date(),
@@ -193,7 +196,7 @@ function invalidRequestLogDetails(
 
 type GeneratedPlan = z.infer<typeof generatedPlanSchema>;
 type ChatReply = z.infer<typeof chatReplySchema>;
-type GenerationReason = "onboarding" | "weight-update" | "workout-complete";
+type GenerationReason = "onboarding" | "weight-update" | "workout-complete" | "daily-refresh";
 
 export type UserContext = {
   profile: Record<string, unknown>;
@@ -201,6 +204,7 @@ export type UserContext = {
   weeklyGoals: Array<Record<string, unknown>>;
   latestPackage: Record<string, unknown> | null;
   latestExercises: Array<Record<string, unknown>>;
+  latestMeals?: Array<{ mealType: string; name: string }>;
   latestWorkoutResult: {
     activeDurationSeconds: number;
     completedAt: string;
@@ -311,16 +315,17 @@ function addDays(isoDate: string, days: number) {
 }
 
 async function loadContext(admin: ReturnType<typeof createAdminClient>, userId: string): Promise<UserContext> {
-  const [profileResult, logsResult, goalsResult, packagesResult, sessionResult] = await Promise.all([
+  const [profileResult, logsResult, goalsResult, packagesResult, sessionResult, recommendationSetResult] = await Promise.all([
     admin.database.from("profiles").select("user_id, current_weight_kg, target_weight_kg, weekly_target_kg, activity_level, meal_preference, time_zone, ai_processing_consent_at, ai_processing_consent_version").eq("user_id", userId).maybeSingle(),
     admin.database.from("weight_logs").select("weight_kg, logged_on").eq("user_id", userId).order("logged_on", { ascending: false }).limit(12),
     admin.database.from("weekly_goals").select("week_start, start_weight_kg, target_weight_kg, planned_loss_kg, status").eq("user_id", userId).order("week_start", { ascending: false }).limit(4),
     admin.database.from("exercise_packages").select("id, name, difficulty_level, purpose, estimated_minutes, scheduled_for, status").eq("user_id", userId).order("scheduled_for", { ascending: false }).order("created_at", { ascending: false }).limit(1),
     admin.database.from("exercise_sessions").select("id, active_duration_seconds, completed_at").eq("user_id", userId).order("completed_at", { ascending: false }).limit(1),
+    admin.database.from("nutrition_recommendation_sets").select("id").eq("user_id", userId).eq("generation_status", "ready").order("scheduled_for", { ascending: false }).order("created_at", { ascending: false }).limit(1),
   ]);
 
   const firstError = profileResult.error ?? logsResult.error ?? goalsResult.error
-    ?? packagesResult.error ?? sessionResult.error;
+    ?? packagesResult.error ?? sessionResult.error ?? recommendationSetResult.error;
   if (firstError) throw firstError;
   if (!profileResult.data) throw new Error("Onboarding is required before generating a program.");
 
@@ -335,6 +340,22 @@ async function loadContext(admin: ReturnType<typeof createAdminClient>, userId: 
       .limit(20);
     if (exerciseResult.error) throw exerciseResult.error;
     latestExercises = exerciseResult.data ?? [];
+  }
+
+  const latestRecommendationSet = recommendationSetResult.data?.[0] ?? null;
+  let latestMeals: Array<{ mealType: string; name: string }> = [];
+  if (latestRecommendationSet?.id) {
+    const mealResult = await admin.database.from("nutrition_recommendations")
+      .select("meal_type, name")
+      .eq("recommendation_set_id", latestRecommendationSet.id)
+      .eq("user_id", userId)
+      .order("order_index", { ascending: true })
+      .limit(10);
+    if (mealResult.error) throw mealResult.error;
+    latestMeals = (mealResult.data ?? []).map((meal) => ({
+      mealType: String(meal.meal_type),
+      name: String(meal.name),
+    }));
   }
 
   const latestSession = sessionResult.data?.[0] ?? null;
@@ -367,6 +388,7 @@ async function loadContext(admin: ReturnType<typeof createAdminClient>, userId: 
     weeklyGoals: goalsResult.data ?? [],
     latestPackage,
     latestExercises,
+    latestMeals,
     latestWorkoutResult,
   };
 }
@@ -375,11 +397,18 @@ async function loadChatContext(
   admin: ReturnType<typeof createAdminClient>,
   userId: string,
 ): Promise<ChatContext> {
-  const [profileResult, logsResult, goalResult, streakResult, packageResult, recommendationSetResult] = await Promise.all([
-    admin.database.from("profiles")
-      .select("current_weight_kg, target_weight_kg, weekly_target_kg, meal_preference, ai_processing_consent_at, ai_processing_consent_version")
-      .eq("user_id", userId)
-      .maybeSingle(),
+  const profileResult = await admin.database.from("profiles")
+    .select("current_weight_kg, target_weight_kg, weekly_target_kg, meal_preference, time_zone, ai_processing_consent_at, ai_processing_consent_version")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (profileResult.error) throw profileResult.error;
+  if (!profileResult.data) throw new Error("Onboarding is required before chat.");
+  const today = isoDateInTimeZone(
+    new Date(),
+    String(profileResult.data.time_zone ?? "Asia/Makassar"),
+  );
+
+  const [logsResult, goalResult, streakResult, packageResult, recommendationSetResult] = await Promise.all([
     admin.database.from("weight_logs")
       .select("weight_kg, logged_on")
       .eq("user_id", userId)
@@ -399,20 +428,20 @@ async function loadChatContext(
       .eq("user_id", userId)
       .eq("status", "active")
       .eq("generation_status", "ready")
-      .order("scheduled_for", { ascending: true })
+      .eq("scheduled_for", today)
       .order("created_at", { ascending: false })
       .limit(1),
     admin.database.from("nutrition_recommendation_sets")
-      .select("id, based_on_weight_kg, generated_by_ai, created_at")
+      .select("id, based_on_weight_kg, generated_by_ai, scheduled_for, created_at")
       .eq("user_id", userId)
       .eq("generation_status", "ready")
+      .eq("scheduled_for", today)
       .order("created_at", { ascending: false })
       .limit(1),
   ]);
-  const firstError = profileResult.error ?? logsResult.error ?? goalResult.error
+  const firstError = logsResult.error ?? goalResult.error
     ?? streakResult.error ?? packageResult.error ?? recommendationSetResult.error;
   if (firstError) throw firstError;
-  if (!profileResult.data) throw new Error("Onboarding is required before chat.");
 
   const activePackage = packageResult.data?.[0] ?? null;
   const activeRecommendationSet = recommendationSetResult.data?.[0] ?? null;
@@ -635,7 +664,163 @@ async function finishAiRequest(
   if (result.error) console.error("Failed to finish AI request", result.error);
 }
 
-function fallbackMeals(preference: unknown): GeneratedPlan["meals"] {
+export function dailyPlanRotation(planDate: string, rotationCount = 3) {
+  const dayNumber = Math.floor(
+    new Date(`${planDate}T12:00:00Z`).getTime() / 86_400_000,
+  );
+  return ((dayNumber % rotationCount) + rotationCount) % rotationCount;
+}
+
+function alternativeFallbackMeals(
+  preference: unknown,
+  rotation: number,
+): GeneratedPlan["meals"] | null {
+  if (rotation === 1) {
+    const breakfastProtein = preference === "nabati" ? "tahu hancur" : "telur";
+    const lunchProtein = preference === "nabati" ? "tempe panggang" : "ikan kembung panggang";
+    return [
+      {
+        mealType: "Sarapan",
+        name: preference === "nabati" ? "Tahu Orak-Arik Sayur dan Roti Gandum" : "Telur Orak-Arik Sayur dan Roti Gandum",
+        description: "Sarapan gurih dengan sayuran berwarna dan roti gandum yang mudah disiapkan.",
+        rationale: "Protein dan serat membantu membangun porsi sarapan yang terasa cukup tanpa persiapan panjang.",
+        prepMinutes: 15,
+        servings: 1,
+        nutrition: { calories: 410, proteinGrams: 24, carbsGrams: 43, fatGrams: 16, fiberGrams: 8 },
+        ingredients: [
+          { amount: preference === "nabati" ? "150 g" : "2 butir", name: breakfastProtein },
+          { amount: "2 lembar", name: "roti gandum" },
+          { amount: "1 mangkuk kecil", name: "bayam, tomat, dan paprika" },
+          { amount: "1 sdt", name: "minyak kanola" },
+        ],
+        cookingSteps: ["Tumis sayuran sebentar dengan minyak hingga sedikit layu.", `Masukkan ${breakfastProtein}, masak hingga matang, lalu sajikan bersama roti gandum.`],
+      },
+      {
+        mealType: "Makan siang",
+        name: preference === "nabati" ? "Nasi Jagung Tempe Kunyit" : "Nasi Jagung Ikan Kunyit",
+        description: "Makan siang bercita rasa kunyit dengan nasi jagung dan lalapan segar.",
+        rationale: "Sumber protein, karbohidrat, dan sayuran disusun dalam satu porsi yang praktis.",
+        prepMinutes: 30,
+        servings: 1,
+        nutrition: { calories: 570, proteinGrams: preference === "nabati" ? 29 : 39, carbsGrams: 66, fatGrams: 17, fiberGrams: 9 },
+        ingredients: [
+          { amount: "120 g", name: lunchProtein },
+          { amount: "150 g", name: "nasi jagung matang" },
+          { amount: "1 mangkuk", name: "timun, kemangi, dan tomat" },
+          { amount: "secukupnya", name: "kunyit, bawang putih, dan jeruk nipis" },
+        ],
+        cookingSteps: ["Lumuri lauk dengan kunyit, bawang putih, dan jeruk nipis.", "Panggang hingga matang lalu sajikan bersama nasi jagung dan lalapan."],
+      },
+      {
+        mealType: "Camilan",
+        name: "Apel, Yogurt Tawar, dan Biji Bunga Matahari",
+        description: "Camilan segar dengan rasa manis alami dan tekstur renyah.",
+        rationale: "Buah, protein, dan lemak dalam porsi kecil cocok untuk jeda antarwaktu makan.",
+        prepMinutes: 5,
+        servings: 1,
+        nutrition: { calories: 230, proteinGrams: 12, carbsGrams: 31, fatGrams: 8, fiberGrams: 6 },
+        ingredients: [
+          { amount: "1 buah kecil", name: "apel, iris" },
+          { amount: "150 g", name: preference === "nabati" ? "yogurt kedelai tawar" : "yogurt tawar" },
+          { amount: "1 sdm", name: "biji bunga matahari" },
+        ],
+        cookingSteps: ["Masukkan yogurt ke mangkuk.", "Tambahkan irisan apel dan biji bunga matahari sebelum dinikmati."],
+      },
+      {
+        mealType: "Makan malam",
+        name: "Tumis Tahu Jamur dan Nasi Merah",
+        description: "Makan malam hangat dengan tumisan tahu, jamur, dan sayuran hijau.",
+        rationale: "Porsi ini menawarkan protein nabati dan sayuran dengan bumbu sederhana.",
+        prepMinutes: 22,
+        servings: 1,
+        nutrition: { calories: 475, proteinGrams: 28, carbsGrams: 56, fatGrams: 17, fiberGrams: 10 },
+        ingredients: [
+          { amount: "150 g", name: "tahu putih" },
+          { amount: "100 g", name: "jamur tiram" },
+          { amount: "120 g", name: "nasi merah matang" },
+          { amount: "1 mangkuk", name: "sawi hijau dan wortel" },
+        ],
+        cookingSteps: ["Tumis tahu dan jamur hingga permukaannya keemasan.", "Tambahkan sayuran dan sedikit air, masak hingga matang, lalu sajikan bersama nasi merah."],
+      },
+    ];
+  }
+
+  if (rotation === 2) {
+    const dinnerProtein = preference === "nabati" ? "tahu dan kacang merah" : "ayam tanpa kulit";
+    return [
+      {
+        mealType: "Sarapan",
+        name: "Bubur Kacang Hijau Ringan",
+        description: "Bubur hangat dengan kacang hijau, oat, dan rasa manis ringan.",
+        rationale: "Kacang hijau dan oat menyumbang serat serta protein untuk memulai hari.",
+        prepMinutes: 25,
+        servings: 1,
+        nutrition: { calories: 400, proteinGrams: 19, carbsGrams: 64, fatGrams: 9, fiberGrams: 11 },
+        ingredients: [
+          { amount: "60 g", name: "kacang hijau rebus" },
+          { amount: "30 g", name: "oat utuh" },
+          { amount: "200 ml", name: "susu rendah lemak atau susu kedelai" },
+          { amount: "1/2 buah", name: "pisang, lumatkan" },
+        ],
+        cookingSteps: ["Masak kacang hijau, oat, dan susu dengan api kecil hingga mengental.", "Aduk pisang lumat sebagai pemanis alami lalu sajikan hangat."],
+      },
+      {
+        mealType: "Makan siang",
+        name: "Gado-Gado Tempe dengan Kentang",
+        description: "Sayuran rebus, tempe, dan kentang dengan saus kacang dalam porsi terukur.",
+        rationale: "Beragam sayuran dipadukan dengan protein tempe untuk makan siang yang lengkap.",
+        prepMinutes: 28,
+        servings: 1,
+        nutrition: { calories: 550, proteinGrams: 30, carbsGrams: 58, fatGrams: 22, fiberGrams: 12 },
+        ingredients: [
+          { amount: "120 g", name: "tempe panggang" },
+          { amount: "120 g", name: "kentang rebus" },
+          { amount: "2 mangkuk", name: "kol, tauge, kacang panjang, dan timun" },
+          { amount: "2 sdm", name: "saus kacang encer" },
+        ],
+        cookingSteps: ["Rebus sayuran hingga matang tetapi tetap renyah.", "Susun bersama kentang dan tempe, lalu tuangkan saus kacang sebelum disajikan."],
+      },
+      {
+        mealType: "Camilan",
+        name: "Edamame dan Jeruk",
+        description: "Camilan sederhana yang gurih, segar, dan mudah dibawa.",
+        rationale: "Edamame memberi protein sementara jeruk menambah buah dalam porsi harian.",
+        prepMinutes: 8,
+        servings: 1,
+        nutrition: { calories: 210, proteinGrams: 13, carbsGrams: 27, fatGrams: 7, fiberGrams: 8 },
+        ingredients: [
+          { amount: "100 g", name: "edamame rebus" },
+          { amount: "1 buah", name: "jeruk" },
+        ],
+        cookingSteps: ["Rebus atau hangatkan edamame lalu tiriskan.", "Sajikan edamame bersama jeruk yang sudah dikupas."],
+      },
+      {
+        mealType: "Makan malam",
+        name: preference === "nabati" ? "Sup Tahu Kacang Merah" : "Sup Ayam Kacang Merah",
+        description: "Sup bening hangat dengan protein, kacang merah, dan sayuran.",
+        rationale: "Kuah hangat membuat porsi sayur dan protein terasa nyaman untuk makan malam.",
+        prepMinutes: 30,
+        servings: 1,
+        nutrition: { calories: 470, proteinGrams: preference === "nabati" ? 27 : 38, carbsGrams: 49, fatGrams: 14, fiberGrams: 12 },
+        ingredients: [
+          { amount: "150 g", name: dinnerProtein },
+          { amount: "80 g", name: "kacang merah matang" },
+          { amount: "1 mangkuk", name: "wortel, buncis, dan kol" },
+          { amount: "400 ml", name: "kaldu rendah garam" },
+        ],
+        cookingSteps: ["Masak protein dan wortel dalam kaldu hingga matang.", "Tambahkan kacang merah serta sayuran lain, lalu masak hingga semuanya empuk."],
+      },
+    ];
+  }
+
+  return null;
+}
+
+function fallbackMeals(preference: unknown, planDate?: string): GeneratedPlan["meals"] {
+  const rotation = planDate ? dailyPlanRotation(planDate) : 0;
+  const alternative = alternativeFallbackMeals(preference, rotation);
+  if (alternative) return alternative;
+
   const proteinLunch = preference === "nabati"
     ? { name: "Nasi Merah Tempe Panggang", protein: 28, rationale: "Tempe, nasi merah, dan sayuran memberi porsi nabati yang lengkap dan mudah disiapkan." }
     : { name: "Nasi Merah Ayam Panggang", protein: 42, rationale: "Protein ayam dipadukan dengan nasi merah dan sayuran untuk porsi utama yang seimbang." };
@@ -698,7 +883,69 @@ function fallbackMeals(preference: unknown): GeneratedPlan["meals"] {
   ];
 }
 
-function fallbackWorkout(context: UserContext, reason: GenerationReason): GeneratedPlan["workout"] {
+function dailyFallbackWorkout(
+  context: UserContext,
+  planDate: string,
+): GeneratedPlan["workout"] {
+  const rotation = dailyPlanRotation(planDate);
+  const difficulty = context.profile.activity_level === "pemula" ? "pemula" : "menengah";
+
+  if (rotation === 1) {
+    return {
+      name: "Kardio Ringan dan Stabilitas",
+      difficulty,
+      purpose: "Menjaga kebugaran dengan kardio rendah benturan dan latihan stabilitas yang berbeda dari sesi sebelumnya.",
+      estimatedMinutes: 28,
+      exercises: [
+        { name: "Jalan Cepat di Tempat", mode: "timed", sets: 1, repetitions: null, durationSeconds: 360, restSeconds: 45, instruction: "Ayunkan lengan secara nyaman dan pertahankan langkah yang stabil." },
+        { name: "Step Touch", mode: "timed", sets: 2, repetitions: null, durationSeconds: 120, restSeconds: 45, instruction: "Melangkah ke samping bergantian tanpa menghentakkan kaki." },
+        { name: "Standing Knee Drive", mode: "repetitions", sets: 2, repetitions: 10, durationSeconds: null, restSeconds: 60, instruction: "Angkat lutut bergantian sambil menjaga badan tetap tegak." },
+        { name: "Bird Dog Berdiri", mode: "repetitions", sets: 2, repetitions: 8, durationSeconds: null, restSeconds: 45, instruction: "Panjangkan lengan dan kaki berlawanan dengan pegangan kursi bila perlu." },
+        { name: "Peregangan Betis dan Bahu", mode: "timed", sets: 1, repetitions: null, durationSeconds: 300, restSeconds: 0, instruction: "Tahan setiap posisi dengan napas tenang tanpa memaksakan rentang gerak." },
+      ],
+    };
+  }
+
+  if (rotation === 2) {
+    return {
+      name: "Pemulihan Aktif dan Mobilitas",
+      difficulty: "pemula",
+      purpose: "Memberi ruang pemulihan aktif melalui gerakan ringan, mobilitas, dan pernapasan tanpa menghentikan kebiasaan harian.",
+      estimatedMinutes: 22,
+      exercises: [
+        { name: "Jalan Santai di Tempat", mode: "timed", sets: 1, repetitions: null, durationSeconds: 300, restSeconds: 30, instruction: "Gunakan tempo santai yang memungkinkanmu berbicara dengan nyaman." },
+        { name: "Putaran Bahu dan Lengan", mode: "timed", sets: 2, repetitions: null, durationSeconds: 90, restSeconds: 30, instruction: "Gerakkan bahu dan lengan perlahan dalam rentang yang nyaman." },
+        { name: "Hip Hinge dengan Kursi", mode: "repetitions", sets: 2, repetitions: 8, durationSeconds: null, restSeconds: 45, instruction: "Dorong pinggul ke belakang sambil menjaga punggung tetap netral." },
+        { name: "Peregangan Samping Berdiri", mode: "timed", sets: 2, repetitions: null, durationSeconds: 60, restSeconds: 30, instruction: "Miringkan tubuh perlahan dan hentikan bila terasa tidak nyaman." },
+        { name: "Pernapasan Terarah", mode: "timed", sets: 1, repetitions: null, durationSeconds: 300, restSeconds: 0, instruction: "Tarik dan keluarkan napas perlahan sambil merilekskan bahu." },
+      ],
+    };
+  }
+
+  return {
+    name: "Kekuatan Dasar Seluruh Tubuh",
+    difficulty,
+    purpose: "Melatih kekuatan dasar seluruh tubuh dengan gerakan rendah benturan dan peningkatan yang tetap terkendali.",
+    estimatedMinutes: 30,
+    exercises: [
+      { name: "Pemanasan Jalan di Tempat", mode: "timed", sets: 1, repetitions: null, durationSeconds: 300, restSeconds: 45, instruction: "Mulai dengan langkah ringan dan bahu yang rileks." },
+      { name: "Chair Squat", mode: "repetitions", sets: 3, repetitions: 10, durationSeconds: null, restSeconds: 60, instruction: "Sentuhkan pinggul ke kursi lalu berdiri dengan stabil." },
+      { name: "Wall Push-Up", mode: "repetitions", sets: 3, repetitions: 8, durationSeconds: null, restSeconds: 60, instruction: "Pertahankan tubuh lurus saat mendekat ke dinding." },
+      { name: "Standing Calf Raise", mode: "repetitions", sets: 2, repetitions: 12, durationSeconds: null, restSeconds: 45, instruction: "Gunakan kursi sebagai penyangga dan turunkan tumit secara perlahan." },
+      { name: "Pendinginan Ringan", mode: "timed", sets: 1, repetitions: null, durationSeconds: 300, restSeconds: 0, instruction: "Atur napas dan lakukan gerakan perlahan tanpa memaksakan rentang gerak." },
+    ],
+  };
+}
+
+function fallbackWorkout(
+  context: UserContext,
+  reason: GenerationReason,
+  planDate?: string,
+): GeneratedPlan["workout"] {
+  if (reason === "daily-refresh" && planDate) {
+    return dailyFallbackWorkout(context, planDate);
+  }
+
   const { shouldEase, shouldProgress } = deriveWorkoutAdaptation(context, reason);
 
   if (context.latestExercises.length >= 3 && reason === "workout-complete") {
@@ -746,10 +993,14 @@ function fallbackWorkout(context: UserContext, reason: GenerationReason): Genera
   };
 }
 
-function fallbackPlan(context: UserContext, reason: GenerationReason): GeneratedPlan {
+function fallbackPlan(
+  context: UserContext,
+  reason: GenerationReason,
+  planDate?: string,
+): GeneratedPlan {
   return {
-    workout: fallbackWorkout(context, reason),
-    meals: fallbackMeals(context.profile.meal_preference),
+    workout: fallbackWorkout(context, reason, planDate),
+    meals: fallbackMeals(context.profile.meal_preference, planDate),
   };
 }
 
@@ -798,6 +1049,9 @@ export function buildAiContext(context: UserContext) {
       .map((goal) => String(goal.status))
       .filter((status) => allowedGoalStatuses.has(status)),
     previousWorkout,
+    ...(context.latestMeals?.length
+      ? { previousMeals: context.latestMeals.map((meal) => ({ ...meal })) }
+      : {}),
     latestWorkoutResult,
   };
 }
@@ -826,19 +1080,20 @@ export function deriveWorkoutAdaptation(
 async function tryAiPlan(
   context: UserContext,
   reason: GenerationReason,
+  planDate: string,
 ): Promise<ModelResult<GeneratedPlan>> {
   const model = getGroqModels().primary;
   if (!hasCurrentAiConsent(context.profile)) {
     return { ok: false, code: "ai_consent_missing", model };
   }
-  const safeContext = buildAiContext(context);
+  const safeContext = { ...buildAiContext(context), planDate };
   return callGroq(
     generatedPlanSchema,
     "sehatin_program",
     [
       {
         role: "system",
-        content: "Kamu menyusun paket latihan adaptif dan rekomendasi makanan dinamis Sehat.in dalam Bahasa Indonesia yang tenang, suportif, dan ramah pemula. Jangan memberi diagnosis, label kondisi medis, klaim terapi, atau mendorong perubahan ekstrem. Target penurunan mingguan wajib tetap 0,5–1 kg. Gunakan hasil latihan terakhir: bila seluruh target latihan selesai dan dua minggu terbaru tidak sama-sama gagal, naikkan hanya satu dimensi secara kecil (repetisi, set, atau durasi). Bila dua target mingguan terbaru berturut-turut gagal, prioritaskan latihan lebih ringan atau gerakan pengganti dengan jeda cukup. Rekomendasi makanan harus menyesuaikan berat terkini dan preferensi pengguna, realistis, menyebut perkiraan gizi per porsi, dan selalu terdiri dari Sarapan, Makan siang, Camilan, dan Makan malam.",
+        content: "Kamu menyusun paket latihan adaptif dan rekomendasi makanan dinamis Sehat.in dalam Bahasa Indonesia yang tenang, suportif, dan ramah pemula. Jangan memberi diagnosis, label kondisi medis, klaim terapi, atau mendorong perubahan ekstrem. Target penurunan mingguan wajib tetap 0,5–1 kg. Gunakan hasil latihan terakhir: bila seluruh target latihan selesai dan dua minggu terbaru tidak sama-sama gagal, naikkan hanya satu dimensi secara kecil (repetisi, set, atau durasi). Bila dua target mingguan terbaru berturut-turut gagal, prioritaskan latihan lebih ringan atau gerakan pengganti dengan jeda cukup. Untuk daily-refresh, hindari mengulang persis susunan latihan dan nama menu sebelumnya; variasikan secara wajar dan gunakan pemulihan aktif saat tubuh memerlukan hari yang lebih ringan. Rekomendasi makanan harus menyesuaikan berat terkini dan preferensi pengguna, realistis, menyebut perkiraan gizi per porsi, dan selalu terdiri dari Sarapan, Makan siang, Camilan, dan Makan malam.",
       },
       {
         role: "user",
@@ -855,96 +1110,116 @@ async function persistPlan(
   context: UserContext,
   plan: GeneratedPlan,
   generatedByAi: boolean,
-  reason: GenerationReason,
+  scheduledFor: string,
+  options: { createWorkout?: boolean; createMeals?: boolean } = {},
 ) {
-  const timeZone = String(context.profile.time_zone ?? "Asia/Makassar");
-  const today = isoDateInTimeZone(new Date(), timeZone);
-  const currentActive = context.latestPackage?.status === "active" && String(context.latestPackage?.scheduled_for ?? "") >= today;
-  const scheduledFor = reason === "workout-complete" || currentActive ? addDays(today, 1) : today;
+  const createWorkout = options.createWorkout ?? true;
+  const createMeals = options.createMeals ?? true;
   const scheduledDate = new Date(`${scheduledFor}T00:00:00Z`);
   const day = scheduledDate.getUTCDay();
   const mondayOffset = day === 0 ? -6 : 1 - day;
   scheduledDate.setUTCDate(scheduledDate.getUTCDate() + mondayOffset);
   const weekStart = scheduledDate.toISOString().slice(0, 10);
 
-  const packageResult = await admin.database.from("exercise_packages").insert([{
-    user_id: userId,
-    week_start: weekStart,
-    scheduled_for: scheduledFor,
-    name: plan.workout.name,
-    difficulty_level: plan.workout.difficulty,
-    purpose: plan.workout.purpose,
-    estimated_minutes: plan.workout.estimatedMinutes,
-    generated_by_ai: generatedByAi,
-    generation_status: "ready",
-    status: "active",
-  }]).select("id").single();
-  if (packageResult.error || !packageResult.data) throw packageResult.error ?? new Error("Package insert failed");
-
-  const exerciseResult = await admin.database.from("sub_exercises").insert(
-    plan.workout.exercises.map((exercise, index) => ({
-      package_id: packageResult.data.id,
+  let packageId: string | null = null;
+  if (createWorkout) {
+    const packageResult = await admin.database.from("exercise_packages").insert([{
       user_id: userId,
-      name: exercise.name,
-      mode: exercise.mode,
-      sets: exercise.sets,
-      repetitions: exercise.repetitions,
-      duration_seconds: exercise.durationSeconds,
-      rest_seconds: exercise.restSeconds,
-      order_index: index + 1,
-      instruction: exercise.instruction,
-    })),
-  );
-  if (exerciseResult.error) throw exerciseResult.error;
-
-  const setResult = await admin.database.from("nutrition_recommendation_sets").insert([{
-    user_id: userId,
-    based_on_weight_kg: Number(context.profile.current_weight_kg),
-    generated_by_ai: generatedByAi,
-    generation_status: "generating",
-  }]).select("id").single();
-  if (setResult.error || !setResult.data) throw setResult.error ?? new Error("Recommendation set insert failed");
-
-  for (const [index, meal] of plan.meals.entries()) {
-    const mealResult = await admin.database.from("nutrition_recommendations").insert([{
-      recommendation_set_id: setResult.data.id,
-      user_id: userId,
-      meal_type: meal.mealType,
-      name: meal.name,
-      description: meal.description,
-      rationale: meal.rationale,
-      prep_minutes: meal.prepMinutes,
-      servings: meal.servings,
-      calories: meal.nutrition.calories,
-      protein_grams: meal.nutrition.proteinGrams,
-      carbs_grams: meal.nutrition.carbsGrams,
-      fat_grams: meal.nutrition.fatGrams,
-      fiber_grams: meal.nutrition.fiberGrams,
-      order_index: index + 1,
+      week_start: weekStart,
+      scheduled_for: scheduledFor,
+      name: plan.workout.name,
+      difficulty_level: plan.workout.difficulty,
+      purpose: plan.workout.purpose,
+      estimated_minutes: plan.workout.estimatedMinutes,
+      generated_by_ai: generatedByAi,
+      generation_status: "ready",
+      status: "active",
     }]).select("id").single();
-    if (mealResult.error || !mealResult.data) throw mealResult.error ?? new Error("Meal insert failed");
+    if (packageResult.error || !packageResult.data) throw packageResult.error ?? new Error("Package insert failed");
+    packageId = String(packageResult.data.id);
 
-    const [ingredientResult, stepResult] = await Promise.all([
-      admin.database.from("nutrition_ingredients").insert(meal.ingredients.map((ingredient, ingredientIndex) => ({
-        recommendation_id: mealResult.data.id,
+    const exerciseResult = await admin.database.from("sub_exercises").insert(
+      plan.workout.exercises.map((exercise, index) => ({
+        package_id: packageId,
         user_id: userId,
-        amount: ingredient.amount,
-        name: ingredient.name,
-        order_index: ingredientIndex + 1,
-      }))),
-      admin.database.from("nutrition_steps").insert(meal.cookingSteps.map((instruction, stepIndex) => ({
-        recommendation_id: mealResult.data.id,
-        user_id: userId,
-        instruction,
-        order_index: stepIndex + 1,
-      }))),
-    ]);
-    if (ingredientResult.error || stepResult.error) throw ingredientResult.error ?? stepResult.error;
+        name: exercise.name,
+        mode: exercise.mode,
+        sets: exercise.sets,
+        repetitions: exercise.repetitions,
+        duration_seconds: exercise.durationSeconds,
+        rest_seconds: exercise.restSeconds,
+        order_index: index + 1,
+        instruction: exercise.instruction,
+      })),
+    );
+    if (exerciseResult.error) throw exerciseResult.error;
   }
 
-  const readyResult = await admin.database.from("nutrition_recommendation_sets").update({ generation_status: "ready" }).eq("id", setResult.data.id);
-  if (readyResult.error) throw readyResult.error;
-  return { packageId: packageResult.data.id, recommendationSetId: setResult.data.id, generatedByAi };
+  let recommendationSetId: string | null = null;
+  if (createMeals) {
+    const setResult = await admin.database.from("nutrition_recommendation_sets").insert([{
+      user_id: userId,
+      based_on_weight_kg: Number(context.profile.current_weight_kg),
+      scheduled_for: scheduledFor,
+      generated_by_ai: generatedByAi,
+      generation_status: "generating",
+    }]).select("id").single();
+    if (setResult.error || !setResult.data) throw setResult.error ?? new Error("Recommendation set insert failed");
+    recommendationSetId = String(setResult.data.id);
+
+    for (const [index, meal] of plan.meals.entries()) {
+      const mealResult = await admin.database.from("nutrition_recommendations").insert([{
+        recommendation_set_id: recommendationSetId,
+        user_id: userId,
+        meal_type: meal.mealType,
+        name: meal.name,
+        description: meal.description,
+        rationale: meal.rationale,
+        prep_minutes: meal.prepMinutes,
+        servings: meal.servings,
+        calories: meal.nutrition.calories,
+        protein_grams: meal.nutrition.proteinGrams,
+        carbs_grams: meal.nutrition.carbsGrams,
+        fat_grams: meal.nutrition.fatGrams,
+        fiber_grams: meal.nutrition.fiberGrams,
+        order_index: index + 1,
+      }]).select("id").single();
+      if (mealResult.error || !mealResult.data) throw mealResult.error ?? new Error("Meal insert failed");
+
+      const [ingredientResult, stepResult] = await Promise.all([
+        admin.database.from("nutrition_ingredients").insert(meal.ingredients.map((ingredient, ingredientIndex) => ({
+          recommendation_id: mealResult.data.id,
+          user_id: userId,
+          amount: ingredient.amount,
+          name: ingredient.name,
+          order_index: ingredientIndex + 1,
+        }))),
+        admin.database.from("nutrition_steps").insert(meal.cookingSteps.map((instruction, stepIndex) => ({
+          recommendation_id: mealResult.data.id,
+          user_id: userId,
+          instruction,
+          order_index: stepIndex + 1,
+        }))),
+      ]);
+      if (ingredientResult.error || stepResult.error) throw ingredientResult.error ?? stepResult.error;
+    }
+
+    const readyResult = await admin.database.from("nutrition_recommendation_sets")
+      .update({ generation_status: "ready" })
+      .eq("id", recommendationSetId);
+    if (readyResult.error) throw readyResult.error;
+  }
+
+  return { packageId, recommendationSetId, generatedByAi, scheduledFor };
+}
+
+function scheduledDateFor(context: UserContext, reason: GenerationReason) {
+  const timeZone = String(context.profile.time_zone ?? "Asia/Makassar");
+  const today = isoDateInTimeZone(new Date(), timeZone);
+  if (reason === "daily-refresh") return today;
+  const currentActive = context.latestPackage?.status === "active"
+    && String(context.latestPackage?.scheduled_for ?? "") >= today;
+  return reason === "workout-complete" || currentActive ? addDays(today, 1) : today;
 }
 
 async function generateAndPersist(
@@ -952,6 +1227,11 @@ async function generateAndPersist(
   userId: string,
   reason: GenerationReason,
   clientRequestId: string,
+  options?: {
+    scheduledFor?: string;
+    createWorkout?: boolean;
+    createMeals?: boolean;
+  },
 ) {
   const claim = await claimAiRequest(admin, userId, "program", clientRequestId);
   if (!claim.allowed || !claim.requestId) {
@@ -960,9 +1240,18 @@ async function generateAndPersist(
 
   try {
     const context = await loadContext(admin, userId);
-    const modelResult = await tryAiPlan(context, reason);
-    const plan = modelResult.ok ? modelResult.data : fallbackPlan(context, reason);
-    const persisted = await persistPlan(admin, userId, context, plan, modelResult.ok, reason);
+    const scheduledFor = options?.scheduledFor ?? scheduledDateFor(context, reason);
+    const modelResult = await tryAiPlan(context, reason, scheduledFor);
+    const plan = modelResult.ok ? modelResult.data : fallbackPlan(context, reason, scheduledFor);
+    const persisted = await persistPlan(
+      admin,
+      userId,
+      context,
+      plan,
+      modelResult.ok,
+      scheduledFor,
+      options,
+    );
     await finishAiRequest(admin, userId, claim.requestId, {
       status: "succeeded",
       model: modelResult.model,
@@ -981,6 +1270,66 @@ async function generateAndPersist(
     });
     throw error;
   }
+}
+
+async function ensureDailyPlan(
+  admin: ReturnType<typeof createAdminClient>,
+  userId: string,
+) {
+  const profileResult = await admin.database.from("profiles")
+    .select("time_zone")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (profileResult.error) throw profileResult.error;
+  if (!profileResult.data) throw new Error("Onboarding is required before generating a daily plan.");
+
+  const today = isoDateInTimeZone(
+    new Date(),
+    String(profileResult.data.time_zone ?? "Asia/Makassar"),
+  );
+  const [packageResult, recommendationSetResult] = await Promise.all([
+    admin.database.from("exercise_packages")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("scheduled_for", today)
+      .eq("generation_status", "ready")
+      .order("created_at", { ascending: false })
+      .limit(1),
+    admin.database.from("nutrition_recommendation_sets")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("scheduled_for", today)
+      .eq("generation_status", "ready")
+      .order("created_at", { ascending: false })
+      .limit(1),
+  ]);
+  if (packageResult.error || recommendationSetResult.error) {
+    throw packageResult.error ?? recommendationSetResult.error;
+  }
+
+  const packageId = packageResult.data?.[0]?.id ?? null;
+  const recommendationSetId = recommendationSetResult.data?.[0]?.id ?? null;
+  if (packageId && recommendationSetId) {
+    return {
+      skipped: true,
+      reason: "already_ready",
+      scheduledFor: today,
+      packageId,
+      recommendationSetId,
+    };
+  }
+
+  return generateAndPersist(
+    admin,
+    userId,
+    "daily-refresh",
+    crypto.randomUUID(),
+    {
+      scheduledFor: today,
+      createWorkout: !packageId,
+      createMeals: !recommendationSetId,
+    },
+  );
 }
 
 function createEasierWorkout(context: ChatContext): GeneratedPlan["workout"] | null {
@@ -1554,6 +1903,11 @@ export default async function handler(req: Request): Promise<Response> {
         parsed.data.reason,
         parsed.data.requestId ?? crypto.randomUUID(),
       );
+      return response({ ok: true, generation });
+    }
+
+    if (parsed.data.action === "ensure-daily-plan") {
+      const generation = await ensureDailyPlan(admin, userId);
       return response({ ok: true, generation });
     }
 

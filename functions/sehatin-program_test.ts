@@ -1,5 +1,6 @@
 import {
   buildAiContext,
+  dailyPlanRotation,
   default as handler,
   deriveWorkoutAdaptation,
   normalizeProgramRequestBody,
@@ -16,6 +17,12 @@ function assertEquals(actual: unknown, expected: unknown, message?: string) {
     );
   }
 }
+
+Deno.test("daily fallback rotation changes across consecutive dates", () => {
+  assertEquals(dailyPlanRotation("2026-09-04"), 0);
+  assertEquals(dailyPlanRotation("2026-09-05"), 1);
+  assertEquals(dailyPlanRotation("2026-09-06"), 2);
+});
 
 Deno.test("AI context contains only the program attributes needed for generation", () => {
   const context: UserContext = {
