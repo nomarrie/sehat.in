@@ -15,6 +15,7 @@ export type ProfileRow = {
   reminder_time: string;
   weekly_summary_enabled: boolean;
   time_zone: string;
+  onboarding_completed_at: string | null;
 };
 
 export type WeeklyGoalRow = {

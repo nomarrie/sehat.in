@@ -19,7 +19,7 @@ export function TodayWorkout({ workoutPackage }: { workoutPackage: ExercisePacka
           <BarbellIcon size={25} weight="regular" />
         </div>
         <p className="module-kicker">Latihan hari ini</p>
-        <h2 id="today-workout-title">Gerak ringan, energi terjaga</h2>
+        <h2 id="today-workout-title">{workoutPackage.name}</h2>
         <p>{workoutPackage.purpose}</p>
       </div>
 

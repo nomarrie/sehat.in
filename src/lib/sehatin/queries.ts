@@ -16,7 +16,6 @@ import type { ExercisePackage } from "@/features/workouts/workout.types";
 import { requireOnboardedUser } from "@/lib/auth/guards";
 import type {
   ExercisePackageRow,
-  ProfileRow,
   SubExerciseRow,
   WeeklyGoalRow,
   WeightLogRow,
@@ -25,27 +24,75 @@ import { formatDateLabel, formatLongDate, getDateInTimeZone } from "./format";
 import { mapExercisePackage, mapWeightLog } from "./mappers";
 import { resolvePackageLookup } from "./package-route";
 
+type SehatinClient = Awaited<ReturnType<typeof requireOnboardedUser>>["client"];
+
+type DailyRecommendationSetRow = {
+  id: string;
+  based_on_weight_kg: string | number;
+  generated_by_ai: boolean;
+  scheduled_for: string;
+  created_at: string;
+};
+
+type DailyExercisePackageRow = ExercisePackageRow & {
+  status: "active" | "completed" | "replaced";
+};
+
 function assertNoError(error: unknown, context: string) {
   if (error) {
-    const message = error && typeof error === "object" && "message" in error ? String(error.message) : context;
-    throw new Error(`${context}: ${message}`);
+    const objectError = error && typeof error === "object" ? error : null;
+    const message = objectError && "message" in objectError
+      ? String(objectError.message).trim()
+      : "";
+    const code = objectError && "error" in objectError
+      ? String(objectError.error).trim()
+      : "";
+    const detail = message || code;
+    throw new Error(detail ? `${context}: ${detail}` : context);
   }
 }
 
-async function loadPackageWithClient(client: Awaited<ReturnType<typeof requireOnboardedUser>>["client"], packageId?: string) {
+async function ensureDailyPlan(
+  client: SehatinClient,
+) {
+  const result = await client.functions.invoke("sehatin-program", {
+    body: { action: "ensure-daily-plan" },
+  });
+  assertNoError(result.error, "Gagal menyiapkan rencana harian");
+}
+
+async function loadPackageRowWithClient(
+  client: SehatinClient,
+  options: {
+    packageId?: string;
+    scheduledFor?: string;
+    includeInactiveForDate?: boolean;
+  } = {},
+): Promise<DailyExercisePackageRow | null> {
+  const { packageId, scheduledFor, includeInactiveForDate = false } = options;
   const lookup = resolvePackageLookup(packageId);
   if (lookup.kind === "invalid") return null;
 
   let query = client.database
     .from("exercise_packages")
-    .select("id, name, scheduled_for, generated_by_ai, difficulty_level, purpose, estimated_minutes")
+    .select("id, name, scheduled_for, generated_by_ai, difficulty_level, purpose, estimated_minutes, status")
     .eq("generation_status", "ready");
   query = lookup.kind === "id"
     ? query.eq("id", lookup.id)
-    : query.eq("status", "active").order("scheduled_for", { ascending: true }).order("created_at", { ascending: false }).limit(1);
+    : query.eq("scheduled_for", scheduledFor ?? getDateInTimeZone("Asia/Makassar"));
+  if (lookup.kind !== "id") {
+    if (!includeInactiveForDate) query = query.eq("status", "active");
+    query = query.order("created_at", { ascending: false });
+  }
   const packageResult = await query.limit(1);
   assertNoError(packageResult.error, "Gagal memuat paket latihan");
-  const row = (packageResult.data?.[0] ?? null) as ExercisePackageRow | null;
+  return (packageResult.data?.[0] ?? null) as DailyExercisePackageRow | null;
+}
+
+async function hydratePackageWithClient(
+  client: SehatinClient,
+  row: ExercisePackageRow | null,
+): Promise<ExercisePackage | null> {
   if (!row) return null;
 
   const exerciseResult = await client.database
@@ -58,16 +105,64 @@ async function loadPackageWithClient(client: Awaited<ReturnType<typeof requireOn
   return mapExercisePackage(row, (exerciseResult.data ?? []) as SubExerciseRow[]);
 }
 
+async function loadPackageWithClient(
+  client: SehatinClient,
+  packageId?: string,
+  scheduledFor?: string,
+) {
+  const row = await loadPackageRowWithClient(client, { packageId, scheduledFor });
+  return hydratePackageWithClient(client, row);
+}
+
+async function loadDailyRecommendationSetWithClient(
+  client: SehatinClient,
+  scheduledFor: string,
+): Promise<DailyRecommendationSetRow | null> {
+  const setResult = await client.database.from("nutrition_recommendation_sets")
+    .select("id, based_on_weight_kg, generated_by_ai, scheduled_for, created_at")
+    .eq("generation_status", "ready")
+    .eq("scheduled_for", scheduledFor)
+    .order("created_at", { ascending: false })
+    .limit(1);
+  assertNoError(setResult.error, "Gagal memuat dasar rekomendasi makanan");
+  return (setResult.data?.[0] ?? null) as DailyRecommendationSetRow | null;
+}
+
+async function loadDailyPlanSnapshot(client: SehatinClient, scheduledFor: string) {
+  const [packageRow, recommendationSet] = await Promise.all([
+    loadPackageRowWithClient(client, {
+      scheduledFor,
+      includeInactiveForDate: true,
+    }),
+    loadDailyRecommendationSetWithClient(client, scheduledFor),
+  ]);
+  return { packageRow, recommendationSet };
+}
+
+async function loadReadyDailyPlanSnapshot(client: SehatinClient, scheduledFor: string) {
+  let snapshot = await loadDailyPlanSnapshot(client, scheduledFor);
+  if (snapshot.packageRow && snapshot.recommendationSet) return snapshot;
+
+  await ensureDailyPlan(client);
+  snapshot = await loadDailyPlanSnapshot(client, scheduledFor);
+  return snapshot;
+}
+
 export async function loadExercisePackage(packageId: string): Promise<ExercisePackage | null> {
-  const { client } = await requireOnboardedUser();
+  const { client, profile } = await requireOnboardedUser();
+  if (resolvePackageLookup(packageId).kind === "current") {
+    const today = getDateInTimeZone(profile.time_zone);
+    const snapshot = await loadReadyDailyPlanSnapshot(client, today);
+    const activeRow = snapshot.packageRow?.status === "active"
+      ? snapshot.packageRow
+      : null;
+    return hydratePackageWithClient(client, activeRow);
+  }
   return loadPackageWithClient(client, packageId);
 }
 
 export async function loadDashboardData(): Promise<DashboardData> {
-  const { client, user } = await requireOnboardedUser();
-  const profileResult = await client.database.from("profiles").select("*").eq("user_id", user.id).single();
-  assertNoError(profileResult.error, "Gagal memuat profil");
-  const profile = profileResult.data as ProfileRow;
+  const { client, user, profile } = await requireOnboardedUser();
   const today = getDateInTimeZone(profile.time_zone);
 
   const [logsResult, goalResult, streakResult, sessionsResult, badgeResult, notificationResult, workoutPackage] = await Promise.all([
@@ -77,7 +172,12 @@ export async function loadDashboardData(): Promise<DashboardData> {
     client.database.from("exercise_sessions").select("active_duration_seconds").eq("activity_date", today).limit(50),
     client.database.from("user_badges").select("earned_at, badges(name, description)").order("earned_at", { ascending: false }).limit(1),
     client.database.from("notifications").select("title, message").order("created_at", { ascending: false }).limit(1),
-    loadPackageWithClient(client),
+    loadReadyDailyPlanSnapshot(client, today).then((dailyPlan) => (
+      hydratePackageWithClient(
+        client,
+        dailyPlan.packageRow?.status === "active" ? dailyPlan.packageRow : null,
+      )
+    )),
   ]);
   [logsResult, goalResult, streakResult, sessionsResult, badgeResult, notificationResult].forEach((result, index) => assertNoError(result.error, `Gagal memuat data dashboard (${index + 1})`));
 
@@ -87,7 +187,6 @@ export async function loadDashboardData(): Promise<DashboardData> {
   const latestBadge = badgeResult.data?.[0] as { earned_at: string; badges: { name: string; description: string } | Array<{ name: string; description: string }> | null } | undefined;
   const badge = Array.isArray(latestBadge?.badges) ? latestBadge.badges[0] : latestBadge?.badges;
   const latestNotification = notificationResult.data?.[0] as { title: string; message: string } | undefined;
-
   return {
     currentDate: today,
     currentDateLabel: formatLongDate(today),
@@ -116,10 +215,7 @@ export async function loadDashboardData(): Promise<DashboardData> {
 }
 
 export async function loadProfileSettings(): Promise<ProfileSettings> {
-  const { client, user } = await requireOnboardedUser();
-  const result = await client.database.from("profiles").select("*").eq("user_id", user.id).single();
-  assertNoError(result.error, "Gagal memuat pengaturan profil");
-  const profile = result.data as ProfileRow;
+  const { user, profile } = await requireOnboardedUser();
   return {
     fullName: profile.full_name,
     email: user.email ?? "",
@@ -139,12 +235,10 @@ export async function loadProfileSettings(): Promise<ProfileSettings> {
 }
 
 export async function loadFoodRecommendations(): Promise<{ context: FoodRecommendationContext; recommendations: FoodRecommendation[] }> {
-  const { client } = await requireOnboardedUser();
-  const setResult = await client.database.from("nutrition_recommendation_sets")
-    .select("id, based_on_weight_kg, generated_by_ai, created_at")
-    .eq("generation_status", "ready").order("created_at", { ascending: false }).limit(1);
-  assertNoError(setResult.error, "Gagal memuat dasar rekomendasi makanan");
-  const set = setResult.data?.[0] as { id: string; based_on_weight_kg: string | number; generated_by_ai: boolean; created_at: string } | undefined;
+  const { client, profile } = await requireOnboardedUser();
+  const today = getDateInTimeZone(profile.time_zone);
+  const dailyPlan = await loadReadyDailyPlanSnapshot(client, today);
+  const set = dailyPlan.recommendationSet;
   if (!set) return { context: { basedOnWeight: 0, updatedLabel: "Belum diperbarui", generatedByAi: false }, recommendations: [] };
 
   const mealsResult = await client.database.from("nutrition_recommendations").select("*")
@@ -179,7 +273,7 @@ export async function loadFoodRecommendations(): Promise<{ context: FoodRecommen
   return {
     context: {
       basedOnWeight: Number(set.based_on_weight_kg),
-      updatedLabel: `Diperbarui ${formatDateLabel(set.created_at.slice(0, 10), { year: "numeric" })}`,
+      updatedLabel: `Rencana ${formatDateLabel(set.scheduled_for, { year: "numeric" })}`,
       generatedByAi: set.generated_by_ai,
     },
     recommendations,
@@ -230,18 +324,7 @@ function mapChatAdjustment(
 }
 
 export async function loadChatPageData(): Promise<ChatPageData> {
-  const { client, user } = await requireOnboardedUser();
-  const profileResult = await client.database
-    .from("profiles")
-    .select("full_name, current_weight_kg, time_zone")
-    .eq("user_id", user.id)
-    .single();
-  assertNoError(profileResult.error, "Gagal memuat konteks chat");
-  const profile = profileResult.data as {
-    full_name: string;
-    current_weight_kg: string | number;
-    time_zone: string;
-  };
+  const { client, user, profile } = await requireOnboardedUser();
   const today = getDateInTimeZone(profile.time_zone);
 
   const [logsResult, streakResult, sessionsResult, workoutPackage, sessionResult] = await Promise.all([
@@ -260,7 +343,12 @@ export async function loadChatPageData(): Promise<ChatPageData> {
       .select("active_duration_seconds")
       .eq("activity_date", today)
       .limit(50),
-    loadPackageWithClient(client),
+    loadReadyDailyPlanSnapshot(client, today).then((dailyPlan) => (
+      hydratePackageWithClient(
+        client,
+        dailyPlan.packageRow?.status === "active" ? dailyPlan.packageRow : null,
+      )
+    )),
     client.database
       .from("chat_sessions")
       .select("id, updated_at")

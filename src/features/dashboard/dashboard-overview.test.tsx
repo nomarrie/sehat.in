@@ -25,6 +25,9 @@ describe("DashboardOverview", () => {
     expect(screen.getByText(/83% target minggu ini/i)).toBeInTheDocument();
     expect(screen.getByText(/22 dari 30 menit/i)).toBeInTheDocument();
     expect(
+      screen.getByRole("heading", { level: 2, name: dashboardData.todayPackage!.name }),
+    ).toBeInTheDocument();
+    expect(
       screen.getByRole("link", { name: /buka latihan hari ini/i }),
     ).toHaveAttribute("href", "/packages/latihan-hari-ini");
   });

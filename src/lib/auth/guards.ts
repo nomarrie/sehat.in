@@ -1,25 +1,27 @@
 import "server-only";
 
 import { redirect } from "next/navigation";
+import { cache } from "react";
 import { createInsForgeServerClient } from "@/lib/insforge/server";
+import type { ProfileRow } from "@/lib/sehatin/database.types";
 
-export async function getOptionalAuthContext() {
+export const getOptionalAuthContext = cache(async function getOptionalAuthContext() {
   const client = await createInsForgeServerClient();
   const { data, error } = await client.auth.getCurrentUser();
   if (error || !data.user) return { client, user: null, profile: null };
 
   const profileResult = await client.database
     .from("profiles")
-    .select("user_id, full_name, onboarding_completed_at")
+    .select("user_id, full_name, age, height_cm, initial_weight_kg, current_weight_kg, target_weight_kg, weekly_target_kg, activity_level, meal_preference, ai_processing_consent_at, ai_processing_consent_version, reminder_enabled, reminder_time, weekly_summary_enabled, time_zone, onboarding_completed_at")
     .eq("user_id", data.user.id)
     .maybeSingle();
 
   return {
     client,
     user: data.user,
-    profile: profileResult.error ? null : profileResult.data,
+    profile: profileResult.error ? null : profileResult.data as ProfileRow | null,
   };
-}
+});
 
 export async function requireUser() {
   const context = await getOptionalAuthContext();
