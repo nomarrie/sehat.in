@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { createInsForgeServerClient } from "@/lib/insforge/server";
-import { getBackendErrorMessage } from "@/lib/insforge/errors";
+import { getBackendErrorMessage, isAuthenticationError } from "@/lib/insforge/errors";
 
 const completionSchema = z.object({
   packageId: z.string().uuid(), clientCompletionId: z.string().uuid(), activeDurationSeconds: z.number().int().min(0).max(86400),
@@ -13,10 +13,14 @@ const completionSchema = z.object({
 
 export async function completeWorkoutAction(input: z.infer<typeof completionSchema>) {
   const parsed = completionSchema.safeParse(input);
-  if (!parsed.success) return { ok: false as const, message: "Ringkasan sesi belum valid." };
+  if (!parsed.success) return { ok: false as const, code: "invalid" as const, message: "Ringkasan sesi belum valid." };
   const client = await createInsForgeServerClient();
   const result = await client.functions.invoke<{ result?: { newBadges?: Array<{ name: string }> } }>("sehatin-program", { body: { action: "complete-workout", ...parsed.data } });
-  if (result.error) return { ok: false as const, message: getBackendErrorMessage(result.error, "Sesi belum dapat disimpan.") };
+  if (result.error) return {
+    ok: false as const,
+    code: isAuthenticationError(result.error) ? "session_expired" as const : "save_failed" as const,
+    message: getBackendErrorMessage(result.error, "Sesi belum dapat disimpan."),
+  };
   revalidatePath("/dashboard"); revalidatePath("/food");
   return { ok: true as const, message: "Sesi tersimpan.", newBadges: result.data?.result?.newBadges ?? [] };
 }

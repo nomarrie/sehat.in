@@ -3,11 +3,24 @@
 import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
 import { CheckCircleIcon } from "@phosphor-icons/react/CheckCircle";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { completeWorkoutAction } from "./actions";
 import type { ExercisePackage } from "./workout.types";
 import { formatClock } from "./session-timer";
 import { useWorkoutSession } from "./workout-session-provider";
+
+async function refreshSessionBeforeSave() {
+  try {
+    const response = await fetch("/api/auth/refresh", {
+      method: "POST",
+      credentials: "include",
+      headers: { Accept: "application/json" },
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
 
 export function SessionCompletion({ workoutPackage }: { workoutPackage: ExercisePackage }) {
   const activeElapsedMs = useWorkoutSession(
@@ -24,10 +37,11 @@ export function SessionCompletion({ workoutPackage }: { workoutPackage: Exercise
   const remainingSeconds = Math.max(0, streakThresholdSeconds - activeSeconds);
   const reachedThreshold = activeSeconds >= streakThresholdSeconds;
 
-  useEffect(() => {
-    if (submitted.current || completedAtMs === null) return;
-    submitted.current = true;
-    void completeWorkoutAction({
+  const saveCompletion = useCallback(async () => {
+    if (completedAtMs === null) return;
+    setSaveState("saving");
+    setSaveMessage("Menyimpan progres latihan…");
+    const input = {
       packageId: workoutPackage.id,
       clientCompletionId,
       activeDurationSeconds: activeSeconds,
@@ -40,15 +54,33 @@ export function SessionCompletion({ workoutPackage }: { workoutPackage: Exercise
         activeDurationSeconds: 0,
         completed: true,
       })),
-    }).then((result) => {
+    };
+
+    try {
+      setSaveMessage("Memperbarui sesi sebelum menyimpan progres…");
+      await refreshSessionBeforeSave();
+      let result = await completeWorkoutAction(input);
+      if (!result.ok && result.code === "session_expired") {
+        setSaveMessage("Memperbarui sesi dan mencoba menyimpan lagi…");
+        result = await completeWorkoutAction(input);
+      }
       setSaveState(result.ok ? "saved" : "error");
       setSaveMessage(result.ok
         ? result.newBadges.length
           ? `Sesi tersimpan. Badge baru: ${result.newBadges.map((badge) => badge.name).join(", ")}.`
           : result.message
         : result.message);
-    });
+    } catch {
+      setSaveState("error");
+      setSaveMessage("Koneksi terputus sebelum sesi tersimpan.");
+    }
   }, [activeSeconds, clientCompletionId, completedAtMs, startedAtMs, workoutPackage]);
+
+  useEffect(() => {
+    if (submitted.current || completedAtMs === null) return;
+    submitted.current = true;
+    void saveCompletion();
+  }, [completedAtMs, saveCompletion]);
 
   return (
     <main className="session-layout completion-layout">
@@ -82,6 +114,11 @@ export function SessionCompletion({ workoutPackage }: { workoutPackage: Exercise
         <p className={`completion-save-status is-${saveState}`} role="status" aria-live="polite">{saveMessage}</p>
 
         <div className="completion-actions">
+          {saveState === "error" ? (
+            <button className="button button-primary" type="button" onClick={() => void saveCompletion()}>
+              Coba simpan lagi
+            </button>
+          ) : null}
           <Link className="button button-primary" href="/dashboard">
             Kembali ke dashboard
             <ArrowRightIcon size={18} weight="regular" aria-hidden="true" />
