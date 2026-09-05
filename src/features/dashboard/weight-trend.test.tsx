@@ -54,4 +54,20 @@ describe("WeightTrend", () => {
     await user.click(screen.getByRole("button", { name: "Simpan catatan" }));
     expect(screen.getByText(/harus antara 30–300 kg/i)).toBeVisible();
   });
+
+  it("describes upward progress for a gain program", () => {
+    render(
+      <WeightTrend
+        logs={[{ date: "2026-08-11", label: "11 Agu", weight: 54 }]}
+        initialWeight={52}
+        targetWeight={60}
+        weeklyTargetWeight={54.5}
+        maxDate="2026-08-12"
+        goalDirection="gain"
+      />,
+    );
+
+    expect(screen.getByText(/naik 2,0 kg sejak mulai/i)).toBeVisible();
+    expect(screen.getByText("0,5 kg lagi")).toBeVisible();
+  });
 });

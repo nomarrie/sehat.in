@@ -21,7 +21,7 @@ export function DashboardOverview({ data }: { data: DashboardData }) {
         <p>Fokus pada satu langkah yang bisa kamu selesaikan hari ini.</p>
       </header>
 
-      <WeeklyTarget goal={data.weeklyGoal} progress={weeklyProgress} />
+      <WeeklyTarget goal={data.weeklyGoal} progress={weeklyProgress} goalDirection={data.user.goalDirection} />
       {data.todayPackage ? (
         <TodayWorkout workoutPackage={data.todayPackage} />
       ) : (
@@ -33,6 +33,7 @@ export function DashboardOverview({ data }: { data: DashboardData }) {
         initialWeight={data.user.initialWeight}
         targetWeight={data.user.targetWeight}
         weeklyTargetWeight={data.weeklyGoal.targetWeight}
+        goalDirection={data.user.goalDirection}
         maxDate={data.currentDate}
       />
       {data.latestAchievement ? <AchievementSummary achievement={data.latestAchievement} /> : null}

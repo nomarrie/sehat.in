@@ -31,4 +31,24 @@ describe("weight progress", () => {
       }),
     ).toBe(83);
   });
+
+  it("reports progress toward a higher target", () => {
+    expect(
+      calculateWeightProgress({
+        initialWeight: 52,
+        currentWeight: 54,
+        targetWeight: 60,
+      }),
+    ).toBe(25);
+  });
+
+  it("reports weekly progress toward a higher target", () => {
+    expect(
+      calculateWeeklyProgress({
+        startWeight: 54,
+        currentWeight: 54.3,
+        targetWeight: 54.5,
+      }),
+    ).toBe(60);
+  });
 });

@@ -3,6 +3,7 @@
 import { CheckCircleIcon } from "@phosphor-icons/react/dist/ssr/CheckCircle";
 import { PlusIcon } from "@phosphor-icons/react/dist/ssr/Plus";
 import { TrendDownIcon } from "@phosphor-icons/react/dist/ssr/TrendDown";
+import { TrendUpIcon } from "@phosphor-icons/react/dist/ssr/TrendUp";
 import { useState, useTransition, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { recordWeightAction } from "./actions";
@@ -10,6 +11,7 @@ import { calculateWeightProgress } from "./progress";
 import type { WeightLog } from "./dashboard.types";
 import { upsertWeightLog, validateWeightEntry, type WeightEntryErrors } from "./weight-log";
 import { WeightTrendChart } from "./weight-trend-chart";
+import { remainingWeight, type GoalDirection } from "@/lib/sehatin/goals";
 
 type WeightTrendProps = {
   logs: WeightLog[];
@@ -17,12 +19,13 @@ type WeightTrendProps = {
   targetWeight: number;
   weeklyTargetWeight: number;
   maxDate: string;
+  goalDirection?: GoalDirection;
 };
 
 const formatKg = (value: number) =>
   new Intl.NumberFormat("id-ID", { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(value);
 
-export function WeightTrend({ logs: initialLogs, initialWeight, targetWeight, weeklyTargetWeight, maxDate }: WeightTrendProps) {
+export function WeightTrend({ logs: initialLogs, initialWeight, targetWeight, weeklyTargetWeight, maxDate, goalDirection = "lose" }: WeightTrendProps) {
   const [logs, setLogs] = useState(initialLogs);
   const [draft, setDraft] = useState({ date: maxDate, weight: "" });
   const [errors, setErrors] = useState<WeightEntryErrors>({});
@@ -32,10 +35,11 @@ export function WeightTrend({ logs: initialLogs, initialWeight, targetWeight, we
   const latest = logs.at(-1);
   const previous = logs.at(-2);
   const currentWeight = latest?.weight ?? initialWeight;
-  const change = initialWeight - currentWeight;
+  const change = currentWeight - initialWeight;
   const totalProgress = calculateWeightProgress({ initialWeight, currentWeight, targetWeight });
   const latestDelta = latest && previous ? latest.weight - previous.weight : 0;
-  const remainingThisWeek = Math.max(0, currentWeight - weeklyTargetWeight);
+  const remainingThisWeek = remainingWeight(currentWeight, weeklyTargetWeight, goalDirection);
+  const TrendIcon = goalDirection === "gain" ? TrendUpIcon : TrendDownIcon;
 
   function submitEntry(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -68,8 +72,8 @@ export function WeightTrend({ logs: initialLogs, initialWeight, targetWeight, we
           <h2 id="weight-trend-title">Tracking berat badan</h2>
         </div>
         <div className="trend-summary">
-          <TrendDownIcon size={18} weight="regular" aria-hidden="true" />
-          <span>{formatKg(change)} kg sejak mulai</span>
+          <TrendIcon size={18} weight="regular" aria-hidden="true" />
+          <span>{change > 0 ? `Naik ${formatKg(change)} kg` : change < 0 ? `Turun ${formatKg(Math.abs(change))} kg` : "Berat stabil"} sejak mulai</span>
         </div>
       </div>
 

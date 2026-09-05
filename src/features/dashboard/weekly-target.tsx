@@ -1,9 +1,12 @@
 import { TargetIcon } from "@phosphor-icons/react/dist/ssr/Target";
 import { TrendDownIcon } from "@phosphor-icons/react/dist/ssr/TrendDown";
+import { TrendUpIcon } from "@phosphor-icons/react/dist/ssr/TrendUp";
 import type { WeeklyGoal } from "./dashboard.types";
+import { remainingWeight, type GoalDirection } from "@/lib/sehatin/goals";
 
-export function WeeklyTarget({ goal, progress }: { goal: WeeklyGoal; progress: number }) {
-  const remaining = Math.max(0, goal.currentWeight - goal.targetWeight).toFixed(1);
+export function WeeklyTarget({ goal, progress, goalDirection = "lose" }: { goal: WeeklyGoal; progress: number; goalDirection?: GoalDirection }) {
+  const remaining = remainingWeight(goal.currentWeight, goal.targetWeight, goalDirection).toFixed(1);
+  const TrendIcon = goalDirection === "gain" ? TrendUpIcon : TrendDownIcon;
 
   return (
     <section className="dashboard-module weekly-target" aria-labelledby="weekly-target-title">
@@ -27,7 +30,7 @@ export function WeeklyTarget({ goal, progress }: { goal: WeeklyGoal; progress: n
           <span>Awal minggu</span>
           <strong>{goal.startWeight.toFixed(1)} kg</strong>
         </div>
-        <TrendDownIcon size={24} weight="regular" aria-hidden="true" />
+        <TrendIcon size={24} weight="regular" aria-hidden="true" />
         <div>
           <span>Saat ini</span>
           <strong>{goal.currentWeight.toFixed(1)} kg</strong>
