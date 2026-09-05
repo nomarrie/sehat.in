@@ -35,6 +35,12 @@ describe("daily workout and meal plan contract", () => {
     expect(queriesSource).not.toContain('.from("profiles")');
   });
 
+  it("keeps the current workout route available when daily generation is unavailable", () => {
+    expect(queriesSource).toContain(
+      'getPackageById("latihan-hari-ini")',
+    );
+  });
+
   it("stores meal recommendation sets against the user's local date", () => {
     expect(migrationSource).toContain(
       "ADD COLUMN IF NOT EXISTS scheduled_for DATE",

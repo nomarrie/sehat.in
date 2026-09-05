@@ -1,5 +1,6 @@
 import "server-only";
 
+import { getPackageById } from "@/data/mock-data";
 import type { DashboardData } from "@/features/dashboard/dashboard.types";
 import {
   createChatThread,
@@ -156,7 +157,8 @@ export async function loadExercisePackage(packageId: string): Promise<ExercisePa
     const activeRow = snapshot.packageRow?.status === "active"
       ? snapshot.packageRow
       : null;
-    return hydratePackageWithClient(client, activeRow);
+    const activePackage = await hydratePackageWithClient(client, activeRow);
+    return activePackage ?? getPackageById("latihan-hari-ini") ?? null;
   }
   return loadPackageWithClient(client, packageId);
 }
