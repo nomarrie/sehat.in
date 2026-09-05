@@ -11,6 +11,7 @@ const defaultPrimaryModel = "qwen/qwen3.8-27b";
 const defaultSecondaryModel = "openai/gpt-oss-120b";
 const groqChatCompletionsUrl = "https://api.groq.com/openai/v1/chat/completions";
 const modelTimeoutMs = 25_000;
+const qwenOnDemandMaxCompletionTokens = 1_000;
 const AI_CONSENT_VERSION = "2026-08-14";
 
 const exerciseSchema = z
@@ -528,7 +529,7 @@ function getGroqModels() {
   };
 }
 
-async function callGroqModel<T>(
+export async function callGroqModel<T>(
   parser: z.ZodType<T>,
   schemaName: string,
   messages: Array<{ role: "system" | "user" | "assistant"; content: string }>,
@@ -547,7 +548,9 @@ async function callGroqModel<T>(
       body: JSON.stringify({
         model,
         messages,
-        max_completion_tokens: maxCompletionTokens,
+        max_completion_tokens: model === defaultPrimaryModel
+          ? Math.min(maxCompletionTokens, qwenOnDemandMaxCompletionTokens)
+          : maxCompletionTokens,
         reasoning_effort: "low",
         response_format: {
           type: "json_schema",
@@ -594,10 +597,13 @@ async function callGroq<T>(
   schemaName: string,
   messages: Array<{ role: "system" | "user" | "assistant"; content: string }>,
   maxCompletionTokens: number,
+  modelPreference: "primary" | "secondary" = "primary",
 ): Promise<ModelResult<T>> {
   const apiKey = Deno.env.get("GROQ_API_KEY");
   const { primary, secondary } = getGroqModels();
-  if (!apiKey) return { ok: false, code: "groq_unconfigured", model: primary };
+  const primaryModel = modelPreference === "secondary" ? secondary : primary;
+  const secondaryModel = modelPreference === "secondary" ? primary : secondary;
+  if (!apiKey) return { ok: false, code: "groq_unconfigured", model: primaryModel };
 
   const primaryResult = await callGroqModel(
     parser,
@@ -605,12 +611,12 @@ async function callGroq<T>(
     messages,
     maxCompletionTokens,
     apiKey,
-    primary,
+    primaryModel,
   );
-  if (primaryResult.ok || secondary === primary) return primaryResult;
+  if (primaryResult.ok || secondaryModel === primaryModel) return primaryResult;
 
   console.warn("Groq primary model failed; trying secondary", {
-    model: primary,
+    model: primaryModel,
     code: primaryResult.code,
   });
   const secondaryResult = await callGroqModel(
@@ -619,14 +625,14 @@ async function callGroq<T>(
     messages,
     maxCompletionTokens,
     apiKey,
-    secondary,
+    secondaryModel,
   );
   if (secondaryResult.ok) return secondaryResult;
 
   return {
     ok: false,
     code: `groq_fallback_exhausted:${primaryResult.code}:${secondaryResult.code}`,
-    model: secondary,
+    model: secondaryModel,
   };
 }
 
@@ -1077,12 +1083,12 @@ export function deriveWorkoutAdaptation(
   };
 }
 
-async function tryAiPlan(
+export async function tryAiPlan(
   context: UserContext,
   reason: GenerationReason,
   planDate: string,
 ): Promise<ModelResult<GeneratedPlan>> {
-  const model = getGroqModels().primary;
+  const model = getGroqModels().secondary;
   if (!hasCurrentAiConsent(context.profile)) {
     return { ok: false, code: "ai_consent_missing", model };
   }
@@ -1101,6 +1107,7 @@ async function tryAiPlan(
       },
     ],
     3000,
+    "secondary",
   );
 }
 

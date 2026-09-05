@@ -5,9 +5,24 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   plugins: [react()],
   resolve: {
-    alias: {
-      "@": fileURLToPath(new URL("./src", import.meta.url)),
-    },
+    alias: [
+      {
+        find: "npm:@insforge/sdk@1.5.2",
+        replacement: fileURLToPath(
+          new URL("./functions/test-support/insforge-sdk.stub.ts", import.meta.url),
+        ),
+      },
+      {
+        find: "npm:zod@4.4.3",
+        replacement: fileURLToPath(
+          new URL("./node_modules/zod/index.js", import.meta.url),
+        ),
+      },
+      {
+        find: "@",
+        replacement: fileURLToPath(new URL("./src", import.meta.url)),
+      },
+    ],
   },
   test: {
     environment: "jsdom",
