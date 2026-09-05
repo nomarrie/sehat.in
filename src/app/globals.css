@@ -1994,9 +1994,9 @@ button:disabled {
 }
 
 .session-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
   gap: 1rem;
   min-block-size: 4rem;
 }
@@ -2014,7 +2014,7 @@ button:disabled {
 .session-header h1 {
   margin-block-start: 0.1rem;
   font-size: clamp(1.15rem, 4.5vw, 1.5rem);
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .exit-session-trigger {
