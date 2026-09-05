@@ -21,6 +21,20 @@ describe("settings validation", () => {
     expect(result.errors.targetWeightKg).toContain("lebih rendah");
   });
 
+  it("validates a gradual gain target in the opposite direction", () => {
+    const draft = settingsToDraft({
+      ...profileSettings,
+      goalDirection: "gain",
+      currentWeightKg: 52,
+      targetWeightKg: 58,
+      weeklyTargetKg: 0.25,
+    });
+
+    expect(validateSettingsDraft(draft).errors).toEqual({});
+    expect(validateSettingsDraft({ ...draft, targetWeightKg: "50" }).errors.targetWeightKg).toContain("lebih tinggi");
+    expect(validateSettingsDraft({ ...draft, weeklyTargetKg: "0.6" }).errors.weeklyTargetKg).toContain("0,25–0,5 kg");
+  });
+
   it("requires a supported age", () => {
     const draft = settingsToDraft(profileSettings);
     expect(validateSettingsDraft({ ...draft, age: "10" }).errors.age).toContain("13–100");

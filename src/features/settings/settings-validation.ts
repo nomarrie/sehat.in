@@ -43,11 +43,17 @@ export function validateSettingsDraft(draft: SettingsDraft): {
   }
   if (!Number.isFinite(targetWeightKg) || targetWeightKg < 30 || targetWeightKg > 300) {
     errors.targetWeightKg = "Target berat harus antara 30–300 kg.";
-  } else if (Number.isFinite(currentWeightKg) && targetWeightKg >= currentWeightKg) {
+  } else if (draft.goalDirection === "lose" && Number.isFinite(currentWeightKg) && targetWeightKg >= currentWeightKg) {
     errors.targetWeightKg = "Target berat harus lebih rendah dari berat saat ini.";
+  } else if (draft.goalDirection === "gain" && Number.isFinite(currentWeightKg) && targetWeightKg <= currentWeightKg) {
+    errors.targetWeightKg = "Target berat harus lebih tinggi dari berat saat ini.";
   }
-  if (!Number.isFinite(weeklyTargetKg) || weeklyTargetKg < 0.5 || weeklyTargetKg > 1) {
-    errors.weeklyTargetKg = "Pilih target aman antara 0,5–1 kg per minggu.";
+  const weeklyMin = draft.goalDirection === "gain" ? 0.25 : 0.5;
+  const weeklyMax = draft.goalDirection === "gain" ? 0.5 : 1;
+  if (!Number.isFinite(weeklyTargetKg) || weeklyTargetKg < weeklyMin || weeklyTargetKg > weeklyMax) {
+    errors.weeklyTargetKg = draft.goalDirection === "gain"
+      ? "Pilih target bertahap antara 0,25–0,5 kg per minggu."
+      : "Pilih target bertahap antara 0,5–1 kg per minggu.";
   }
   if (draft.reminderEnabled && !draft.reminderTime) {
     errors.reminderTime = "Pilih waktu pengingat.";

@@ -11,6 +11,7 @@ import { useActionState, useMemo, useRef, useState, type FormEvent } from "react
 import type { ProfileSettings, SettingsDraft } from "./settings.types";
 import { settingsToDraft, validateSettingsDraft } from "./settings-validation";
 import { saveSettingsAction, type SettingsActionState } from "./actions";
+import { goalDirectionLabels, weeklyTargetRange } from "@/lib/sehatin/goals";
 
 type SettingsFormProps = { initialSettings: ProfileSettings; mode?: "all" | "preferences" | "program" };
 
@@ -46,6 +47,7 @@ export function SettingsForm({ initialSettings, mode = "all" }: SettingsFormProp
     return result;
   }, {});
   const isDirty = JSON.stringify(draft) !== JSON.stringify(savedDraft);
+  const weeklyRange = weeklyTargetRange(draft.goalDirection);
 
   function update<K extends keyof SettingsDraft>(key: K, value: SettingsDraft[K]) {
     setDraft((current) => {
@@ -98,6 +100,7 @@ export function SettingsForm({ initialSettings, mode = "all" }: SettingsFormProp
       </header>
 
       <form key={savedRevision} className="settings-form" action={saveAction} onSubmit={handleSubmit} noValidate>
+        <input type="hidden" name="goalDirection" value={draft.goalDirection} />
         {mode === "preferences" && <>
           <input type="hidden" name="heightCm" value={draft.heightCm} />
           <input type="hidden" name="currentWeightKg" value={draft.currentWeightKg} />
@@ -144,10 +147,11 @@ export function SettingsForm({ initialSettings, mode = "all" }: SettingsFormProp
             <div><h2 id="program-title">Data program</h2><p>Perbarui titik awal agar target dan rekomendasi tetap relevan.</p></div>
           </div>
           <div className="settings-fields settings-fields-compact">
+            <div className="form-field"><span>Arah program</span><strong>{goalDirectionLabels[draft.goalDirection]}</strong><small className="field-hint">Dipilih saat onboarding dan digunakan untuk seluruh rekomendasi.</small></div>
             <label className="form-field"><span>Tinggi badan</span><span className="input-with-unit"><input name="heightCm" aria-label="Tinggi badan" type="number" inputMode="decimal" value={draft.heightCm} onChange={(event) => update("heightCm", event.target.value)} {...errorProps("heightCm")} /><small aria-hidden="true">cm</small></span>{fieldError("heightCm")}</label>
             <label className="form-field"><span>Berat saat ini</span><span className="input-with-unit"><input name="currentWeightKg" aria-label="Berat saat ini" type="number" inputMode="decimal" step="0.1" value={draft.currentWeightKg} onChange={(event) => update("currentWeightKg", event.target.value)} {...errorProps("currentWeightKg")} /><small aria-hidden="true">kg</small></span>{fieldError("currentWeightKg")}</label>
             <label className="form-field"><span>Target berat</span><span className="input-with-unit"><input name="targetWeightKg" aria-label="Target berat" type="number" inputMode="decimal" step="0.1" value={draft.targetWeightKg} onChange={(event) => update("targetWeightKg", event.target.value)} {...errorProps("targetWeightKg")} /><small aria-hidden="true">kg</small></span>{fieldError("targetWeightKg")}</label>
-            <label className="form-field"><span>Target mingguan</span><span className="input-with-unit"><input name="weeklyTargetKg" aria-label="Target mingguan" type="number" inputMode="decimal" min="0.5" max="1" step="0.1" value={draft.weeklyTargetKg} onChange={(event) => update("weeklyTargetKg", event.target.value)} {...errorProps("weeklyTargetKg")} /><small aria-hidden="true">kg</small></span><small className="field-hint">Rentang aman: 0,5–1 kg.</small>{fieldError("weeklyTargetKg")}</label>
+            <label className="form-field"><span>Target mingguan</span><span className="input-with-unit"><input name="weeklyTargetKg" aria-label="Target mingguan" type="number" inputMode="decimal" min={weeklyRange.min} max={weeklyRange.max} step={weeklyRange.step} value={draft.weeklyTargetKg} onChange={(event) => update("weeklyTargetKg", event.target.value)} {...errorProps("weeklyTargetKg")} /><small aria-hidden="true">kg</small></span><small className="field-hint">{draft.goalDirection === "gain" ? "Rentang bertahap: 0,25–0,5 kg." : "Rentang bertahap: 0,5–1 kg."}</small>{fieldError("weeklyTargetKg")}</label>
             <label className="form-field"><span>Tingkat aktivitas</span><select name="activityLevel" value={draft.activityLevel} onChange={(event) => update("activityLevel", event.target.value as SettingsDraft["activityLevel"])}>{activityOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
             <label className="form-field"><span>Preferensi makanan</span><select name="mealPreference" value={draft.mealPreference} onChange={(event) => update("mealPreference", event.target.value as SettingsDraft["mealPreference"])}>{mealOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
           </div>

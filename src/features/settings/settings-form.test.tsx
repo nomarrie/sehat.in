@@ -33,7 +33,7 @@ describe("SettingsForm", () => {
     await user.clear(weeklyTarget);
     await user.type(weeklyTarget, "0.4");
     await user.click(screen.getByRole("button", { name: "Simpan perubahan" }));
-    expect(screen.getByText(/target aman antara 0,5–1 kg/i)).toBeVisible();
+    expect(screen.getByText(/target bertahap antara 0,5–1 kg/i)).toBeVisible();
   });
 
   it("lets existing users explicitly enable AI personalization", async () => {
