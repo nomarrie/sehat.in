@@ -16,6 +16,11 @@ const maxRateLimitJitterMs = 250;
 const qwenOnDemandMaxCompletionTokens = 1_000;
 const fullPlanMaxCompletionTokens = 2_400;
 const AI_CONSENT_VERSION = "2026-08-14";
+type GoalDirection = "lose" | "gain";
+
+function profileGoalDirection(profile: Record<string, unknown>): GoalDirection {
+  return profile.goal_direction === "gain" ? "gain" : "lose";
+}
 
 const exerciseSchema = z
   .object({
@@ -97,7 +102,8 @@ const requestSchema = z.discriminatedUnion("action", [
     heightCm: z.number().min(100).max(250),
     initialWeightKg: z.number().min(30).max(300),
     targetWeightKg: z.number().min(30).max(300),
-    weeklyTargetKg: z.number().min(0.5).max(1),
+    goalDirection: z.enum(["lose", "gain"]),
+    weeklyTargetKg: z.number().min(0.25).max(1),
     activityLevel: z.enum(["pemula", "menengah", "aktif"]),
     mealPreference: z.enum(["seimbang", "tinggi-protein", "nabati"]),
     reminderEnabled: z.boolean().default(true),
@@ -106,9 +112,19 @@ const requestSchema = z.discriminatedUnion("action", [
     timeZone: z.string().min(1).max(100).default("Asia/Makassar"),
     aiProcessingConsent: z.boolean().default(false),
     requestId: z.string().uuid().optional(),
-  }).refine((value) => value.targetWeightKg < value.initialWeightKg, {
-    path: ["targetWeightKg"],
-    message: "Target weight must be lower than the starting weight",
+  }).superRefine((value, context) => {
+    if (value.goalDirection === "lose" && value.targetWeightKg >= value.initialWeightKg) {
+      context.addIssue({ code: "custom", path: ["targetWeightKg"], message: "Target weight must be lower than the starting weight" });
+    }
+    if (value.goalDirection === "gain" && value.targetWeightKg <= value.initialWeightKg) {
+      context.addIssue({ code: "custom", path: ["targetWeightKg"], message: "Target weight must be higher than the starting weight" });
+    }
+    if (value.goalDirection === "gain" && value.weeklyTargetKg > 0.5) {
+      context.addIssue({ code: "custom", path: ["weeklyTargetKg"], message: "Weekly gain must not exceed 0.5 kg" });
+    }
+    if (value.goalDirection === "lose" && value.weeklyTargetKg < 0.5) {
+      context.addIssue({ code: "custom", path: ["weeklyTargetKg"], message: "Weekly loss must be at least 0.5 kg" });
+    }
   }),
   z.object({
     action: z.literal("generate-plan"),
@@ -320,9 +336,9 @@ function addDays(isoDate: string, days: number) {
 
 async function loadContext(admin: ReturnType<typeof createAdminClient>, userId: string): Promise<UserContext> {
   const [profileResult, logsResult, goalsResult, packagesResult, sessionResult, recommendationSetResult] = await Promise.all([
-    admin.database.from("profiles").select("user_id, current_weight_kg, target_weight_kg, weekly_target_kg, activity_level, meal_preference, time_zone, ai_processing_consent_at, ai_processing_consent_version").eq("user_id", userId).maybeSingle(),
+    admin.database.from("profiles").select("user_id, current_weight_kg, target_weight_kg, goal_direction, weekly_target_kg, activity_level, meal_preference, time_zone, ai_processing_consent_at, ai_processing_consent_version").eq("user_id", userId).maybeSingle(),
     admin.database.from("weight_logs").select("weight_kg, logged_on").eq("user_id", userId).order("logged_on", { ascending: false }).limit(12),
-    admin.database.from("weekly_goals").select("week_start, start_weight_kg, target_weight_kg, planned_loss_kg, status").eq("user_id", userId).order("week_start", { ascending: false }).limit(4),
+    admin.database.from("weekly_goals").select("week_start, start_weight_kg, target_weight_kg, planned_change_kg, goal_direction, status").eq("user_id", userId).order("week_start", { ascending: false }).limit(4),
     admin.database.from("exercise_packages").select("id, name, difficulty_level, purpose, estimated_minutes, scheduled_for, status").eq("user_id", userId).order("scheduled_for", { ascending: false }).order("created_at", { ascending: false }).limit(1),
     admin.database.from("exercise_sessions").select("id, active_duration_seconds, completed_at").eq("user_id", userId).order("completed_at", { ascending: false }).limit(1),
     admin.database.from("nutrition_recommendation_sets").select("id").eq("user_id", userId).eq("generation_status", "ready").order("scheduled_for", { ascending: false }).order("created_at", { ascending: false }).limit(1),
@@ -402,7 +418,7 @@ async function loadChatContext(
   userId: string,
 ): Promise<ChatContext> {
   const profileResult = await admin.database.from("profiles")
-    .select("current_weight_kg, target_weight_kg, weekly_target_kg, meal_preference, time_zone, ai_processing_consent_at, ai_processing_consent_version")
+    .select("current_weight_kg, target_weight_kg, goal_direction, weekly_target_kg, meal_preference, time_zone, ai_processing_consent_at, ai_processing_consent_version")
     .eq("user_id", userId)
     .maybeSingle();
   if (profileResult.error) throw profileResult.error;
@@ -419,7 +435,7 @@ async function loadChatContext(
       .order("logged_on", { ascending: false })
       .limit(3),
     admin.database.from("weekly_goals")
-      .select("target_weight_kg, planned_loss_kg, status, week_start")
+      .select("target_weight_kg, planned_change_kg, goal_direction, status, week_start")
       .eq("user_id", userId)
       .order("week_start", { ascending: false })
       .limit(1),
@@ -983,12 +999,97 @@ function fallbackMeals(preference: unknown, planDate?: string): GeneratedPlan["m
   ];
 }
 
+function adaptMealsForGoal(
+  meals: GeneratedPlan["meals"],
+  direction: GoalDirection,
+): GeneratedPlan["meals"] {
+  if (direction === "lose") return meals;
+
+  const additions = {
+    Sarapan: { calories: 100, protein: 4, carbs: 8, fat: 7, fiber: 1, amount: "1 sdm", name: "selai kacang tanpa gula atau tahini" },
+    "Makan siang": { calories: 150, protein: 8, carbs: 22, fat: 4, fiber: 1, amount: "75 g", name: "nasi atau umbi matang tambahan" },
+    Camilan: { calories: 120, protein: 5, carbs: 7, fat: 8, fiber: 2, amount: "20 g", name: "kacang atau biji-bijian tanpa garam" },
+    "Makan malam": { calories: 130, protein: 7, carbs: 16, fat: 5, fiber: 1, amount: "1 porsi kecil", name: "tahu, tempe, telur, atau lauk protein tambahan" },
+  } as const;
+
+  return meals.map((meal) => {
+    const addition = additions[meal.mealType];
+    return {
+      ...meal,
+      rationale: `${meal.rationale} Porsi ditambah secara bertahap untuk mendukung kenaikan berat dan pemulihan latihan kekuatan.`,
+      nutrition: {
+        calories: meal.nutrition.calories + addition.calories,
+        proteinGrams: meal.nutrition.proteinGrams + addition.protein,
+        carbsGrams: meal.nutrition.carbsGrams + addition.carbs,
+        fatGrams: meal.nutrition.fatGrams + addition.fat,
+        fiberGrams: meal.nutrition.fiberGrams + addition.fiber,
+      },
+      ingredients: [...meal.ingredients, { amount: addition.amount, name: addition.name }],
+    };
+  });
+}
+
+function gainFallbackWorkout(
+  context: UserContext,
+  rotation = 0,
+): GeneratedPlan["workout"] {
+  const difficulty = context.profile.activity_level === "pemula" ? "pemula" : "menengah";
+  if (rotation === 2) {
+    return {
+      name: "Pemulihan Kekuatan dan Mobilitas",
+      difficulty: "pemula",
+      purpose: "Mendukung pemulihan latihan kekuatan dengan mobilitas ringan, aktivasi otot, dan tempo yang nyaman.",
+      estimatedMinutes: 22,
+      exercises: [
+        { name: "Jalan Santai di Tempat", mode: "timed", sets: 1, repetitions: null, durationSeconds: 240, restSeconds: 30, instruction: "Gunakan tempo santai sambil menjaga napas tetap nyaman." },
+        { name: "Glute Bridge", mode: "repetitions", sets: 2, repetitions: 10, durationSeconds: null, restSeconds: 60, instruction: "Dorong pinggul perlahan dan hentikan sebelum punggung terasa tidak nyaman." },
+        { name: "Bird Dog", mode: "repetitions", sets: 2, repetitions: 8, durationSeconds: null, restSeconds: 45, instruction: "Panjangkan lengan dan kaki berlawanan tanpa memutar pinggul." },
+        { name: "Wall Slide", mode: "repetitions", sets: 2, repetitions: 8, durationSeconds: null, restSeconds: 45, instruction: "Geser lengan perlahan di dinding dalam rentang yang nyaman." },
+        { name: "Peregangan Seluruh Tubuh", mode: "timed", sets: 1, repetitions: null, durationSeconds: 300, restSeconds: 0, instruction: "Tahan tiap posisi dengan napas tenang tanpa memaksakan rentang gerak." },
+      ],
+    };
+  }
+
+  if (rotation === 1) {
+    return {
+      name: "Kekuatan Tubuh Atas dan Pinggul",
+      difficulty,
+      purpose: "Membangun kekuatan otot utama secara bertahap dengan beban rumah tangga yang mudah dikendalikan.",
+      estimatedMinutes: 30,
+      exercises: [
+        { name: "Pemanasan Mobilitas", mode: "timed", sets: 1, repetitions: null, durationSeconds: 240, restSeconds: 30, instruction: "Gerakkan bahu dan pinggul perlahan dalam rentang yang nyaman." },
+        { name: "Backpack Row", mode: "repetitions", sets: 3, repetitions: 10, durationSeconds: null, restSeconds: 75, instruction: "Tarik tas ke arah badan dengan punggung netral dan beban ringan." },
+        { name: "Incline Push-Up", mode: "repetitions", sets: 3, repetitions: 8, durationSeconds: null, restSeconds: 75, instruction: "Gunakan meja kokoh dan pertahankan tubuh lurus selama gerakan." },
+        { name: "Hip Hinge dengan Tas", mode: "repetitions", sets: 3, repetitions: 10, durationSeconds: null, restSeconds: 75, instruction: "Dorong pinggul ke belakang dan gunakan beban yang tetap mudah dikendalikan." },
+        { name: "Farmer Carry", mode: "timed", sets: 3, repetitions: null, durationSeconds: 45, restSeconds: 60, instruction: "Bawa dua beban ringan sambil berdiri tegak dan melangkah stabil." },
+      ],
+    };
+  }
+
+  return {
+    name: "Kekuatan Dasar untuk Bertumbuh",
+    difficulty,
+    purpose: "Membangun kekuatan seluruh tubuh secara bertahap untuk mendukung kenaikan berat yang berfokus pada massa otot.",
+    estimatedMinutes: 32,
+    exercises: [
+      { name: "Pemanasan Jalan di Tempat", mode: "timed", sets: 1, repetitions: null, durationSeconds: 240, restSeconds: 30, instruction: "Mulai dengan langkah ringan dan bahu rileks." },
+      { name: "Chair Squat", mode: "repetitions", sets: 3, repetitions: 10, durationSeconds: null, restSeconds: 75, instruction: "Sentuhkan pinggul ke kursi lalu berdiri dengan stabil." },
+      { name: "Wall Push-Up", mode: "repetitions", sets: 3, repetitions: 10, durationSeconds: null, restSeconds: 75, instruction: "Pertahankan tubuh lurus saat mendekat ke dinding." },
+      { name: "Glute Bridge", mode: "repetitions", sets: 3, repetitions: 12, durationSeconds: null, restSeconds: 75, instruction: "Dorong pinggul perlahan sambil menjaga tulang rusuk tetap rileks." },
+      { name: "Standing Calf Raise", mode: "repetitions", sets: 3, repetitions: 12, durationSeconds: null, restSeconds: 60, instruction: "Gunakan kursi sebagai penyangga dan turunkan tumit secara perlahan." },
+    ],
+  };
+}
+
 function dailyFallbackWorkout(
   context: UserContext,
   planDate: string,
 ): GeneratedPlan["workout"] {
   const rotation = dailyPlanRotation(planDate);
   const difficulty = context.profile.activity_level === "pemula" ? "pemula" : "menengah";
+  if (profileGoalDirection(context.profile) === "gain") {
+    return gainFallbackWorkout(context, rotation);
+  }
 
   if (rotation === 1) {
     return {
@@ -1076,6 +1177,10 @@ function fallbackWorkout(
     };
   }
 
+  if (profileGoalDirection(context.profile) === "gain") {
+    return gainFallbackWorkout(context);
+  }
+
   return {
     name: "Latihan Hari Ini",
     difficulty: "pemula",
@@ -1093,14 +1198,17 @@ function fallbackWorkout(
   };
 }
 
-function fallbackPlan(
+export function fallbackPlan(
   context: UserContext,
   reason: GenerationReason,
   planDate?: string,
 ): GeneratedPlan {
   return {
     workout: fallbackWorkout(context, reason, planDate),
-    meals: fallbackMeals(context.profile.meal_preference, planDate),
+    meals: adaptMealsForGoal(
+      fallbackMeals(context.profile.meal_preference, planDate),
+      profileGoalDirection(context.profile),
+    ),
   };
 }
 
@@ -1142,6 +1250,7 @@ export function buildAiContext(context: UserContext) {
     currentWeightKg: Math.round(Number(context.profile.current_weight_kg)),
     targetWeightKg: Math.round(Number(context.profile.target_weight_kg)),
     weeklyTargetKg: Number(context.profile.weekly_target_kg),
+    goalDirection: profileGoalDirection(context.profile),
     activityLevel: String(context.profile.activity_level),
     mealPreference: String(context.profile.meal_preference),
     recentGoalStatuses: context.weeklyGoals
@@ -1187,13 +1296,16 @@ export async function tryAiPlan(
     return { ok: false, code: "ai_consent_missing", model };
   }
   const safeContext = { ...buildAiContext(context), planDate };
+  const directionGuidance = profileGoalDirection(context.profile) === "gain"
+    ? "Tujuan pengguna adalah kenaikan berat bertahap 0,25–0,5 kg per minggu. Prioritaskan latihan kekuatan dengan progres kecil, pemulihan cukup, protein di setiap waktu makan, dan tambahan energi dari makanan padat gizi. Jangan menyarankan mengandalkan makanan atau minuman tinggi gula."
+    : "Tujuan pengguna adalah penurunan berat bertahap 0,5–1 kg per minggu. Seimbangkan latihan kekuatan dan kardio rendah benturan, serta sarankan porsi bergizi yang realistis tanpa pembatasan ekstrem.";
   return callGroq(
     generatedPlanSchema,
     "sehatin_program",
     [
       {
         role: "system",
-        content: "Kamu menyusun paket latihan adaptif dan rekomendasi makanan dinamis Sehat.in dalam Bahasa Indonesia yang tenang, suportif, dan ramah pemula. Jangan memberi diagnosis, label kondisi medis, klaim terapi, atau mendorong perubahan ekstrem. Target penurunan mingguan wajib tetap 0,5–1 kg. Gunakan hasil latihan terakhir: bila seluruh target latihan selesai dan dua minggu terbaru tidak sama-sama gagal, naikkan hanya satu dimensi secara kecil (repetisi, set, atau durasi). Bila dua target mingguan terbaru berturut-turut gagal, prioritaskan latihan lebih ringan atau gerakan pengganti dengan jeda cukup. Untuk daily-refresh, hindari mengulang persis susunan latihan dan nama menu sebelumnya; variasikan secara wajar dan gunakan pemulihan aktif saat tubuh memerlukan hari yang lebih ringan. Rekomendasi makanan harus menyesuaikan berat terkini dan preferensi pengguna, realistis, menyebut perkiraan gizi per porsi, dan selalu terdiri dari Sarapan, Makan siang, Camilan, dan Makan malam.",
+        content: `Kamu menyusun paket latihan adaptif dan rekomendasi makanan dinamis Sehat.in dalam Bahasa Indonesia yang tenang, suportif, dan ramah pemula. Jangan memberi diagnosis, label kondisi medis, klaim terapi, atau mendorong perubahan berat ekstrem. ${directionGuidance} Gunakan hasil latihan terakhir: bila seluruh target latihan selesai dan dua minggu terbaru tidak sama-sama gagal, naikkan hanya satu dimensi secara kecil (repetisi, set, atau durasi). Bila dua target mingguan terbaru berturut-turut gagal, prioritaskan latihan lebih ringan atau gerakan pengganti dengan jeda cukup. Untuk daily-refresh, hindari mengulang persis susunan latihan dan nama menu sebelumnya; variasikan secara wajar dan gunakan pemulihan aktif saat tubuh memerlukan hari yang lebih ringan. Rekomendasi makanan harus menyesuaikan berat terkini dan preferensi pengguna, realistis, menyebut perkiraan gizi per porsi, dan selalu terdiri dari Sarapan, Makan siang, Camilan, dan Makan malam.`,
       },
       {
         role: "user",
@@ -1599,6 +1711,7 @@ function createFoodAdjustment(context: ChatContext, normalized: string): Generat
 
 function fallbackChatReply(context: ChatContext, content: string): ChatReply {
   const normalized = content.toLocaleLowerCase("id-ID");
+  const direction = profileGoalDirection(context.profile);
 
   if (/sakit|nyeri|pusing|sesak/.test(normalized)) {
     return {
@@ -1653,7 +1766,9 @@ function fallbackChatReply(context: ChatContext, content: string): ChatReply {
 
   if (/makan|lapar|kalori/.test(normalized)) {
     return {
-      answer: "Pilih makanan yang terasa cukup, mudah disiapkan, dan sesuai preferensimu. Gunakan rekomendasi makanan terbaru sebagai titik awal, lalu sesuaikan bahan dengan alergi, kebutuhan, atau arahan tenaga profesional.",
+      answer: direction === "gain"
+        ? "Untuk kenaikan bertahap, gunakan rekomendasi terbaru sebagai dasar lalu tambahkan energi dari porsi karbohidrat, protein, kacang, biji-bijian, atau lemak tak jenuh. Hindari mengandalkan makanan tinggi gula, dan sesuaikan dengan alergi atau arahan tenaga profesional."
+        : "Pilih makanan yang terasa cukup, mudah disiapkan, dan sesuai preferensimu. Gunakan rekomendasi makanan terbaru sebagai titik awal, lalu sesuaikan bahan dengan alergi, kebutuhan, atau arahan tenaga profesional.",
       adjustment: null,
     };
   }
@@ -1686,6 +1801,7 @@ async function tryAiChat(
       currentWeightKg: Number(context.profile.current_weight_kg),
       targetWeightKg: Number(context.profile.target_weight_kg),
       weeklyTargetKg: Number(context.profile.weekly_target_kg),
+      goalDirection: profileGoalDirection(context.profile),
       mealPreference: String(context.profile.meal_preference),
     },
     recentWeights: context.weightLogs,
@@ -1703,7 +1819,7 @@ async function tryAiChat(
     [
       {
         role: "system",
-        content: `Kamu adalah Pendamping Sehat.in. Jawab dalam Bahasa Indonesia yang tenang, suportif, ringkas, dan ramah pemula. Gunakan hanya konteks minimum berikut: ${JSON.stringify(contextForModel)}. Jangan memberi diagnosis, label kondisi medis, klaim terapi, atau mendorong penurunan ekstrem. Untuk rasa sakit, pusing, atau sesak: sarankan menghentikan gerakan pemicu dan menghubungi tenaga kesehatan bila menetap, memburuk, atau mengganggu aktivitas. Jangan mengarang data yang tidak ada. Isi adjustment hanya bila pengguna secara eksplisit meminta perubahan latihan atau makanan, termasuk mengatakan latihan terlalu berat, terlalu ringan, atau meminta menu/bahan tertentu. Untuk target workout: target wajib "workout", workout berisi versi aman dari paket aktif dengan 3–10 gerakan, meal wajib null, dan rows membandingkan target setiap gerakan saat ini dengan usulan. Untuk target food: target wajib "food", meal wajib berisi tepat satu menu pengganti lengkap untuk waktu makan yang diminta, workout wajib null, dan rows hanya membandingkan menu tersebut. Jangan menerapkan perubahan sebelum pengguna mengonfirmasi melalui tombol. Untuk pertanyaan atau ide yang tidak meminta perubahan, adjustment wajib null.`,
+        content: `Kamu adalah Pendamping Sehat.in. Jawab dalam Bahasa Indonesia yang tenang, suportif, ringkas, dan ramah pemula. Gunakan hanya konteks minimum berikut: ${JSON.stringify(contextForModel)}. Selalu sesuaikan jawaban dengan goalDirection: gain berarti kenaikan bertahap melalui makanan padat gizi, protein, latihan kekuatan, dan pemulihan; lose berarti penurunan bertahap tanpa pembatasan ekstrem. Jangan memberi diagnosis, label kondisi medis, klaim terapi, atau mendorong perubahan berat ekstrem. Untuk rasa sakit, pusing, atau sesak: sarankan menghentikan gerakan pemicu dan menghubungi tenaga kesehatan bila menetap, memburuk, atau mengganggu aktivitas. Untuk perubahan berat mendadak atau tidak disengaja, sarankan berkonsultasi dengan tenaga kesehatan. Jangan mengarang data yang tidak ada. Isi adjustment hanya bila pengguna secara eksplisit meminta perubahan latihan atau makanan, termasuk mengatakan latihan terlalu berat, terlalu ringan, atau meminta menu/bahan tertentu. Untuk target workout: target wajib "workout", workout berisi versi aman dari paket aktif dengan 3–10 gerakan, meal wajib null, dan rows membandingkan target setiap gerakan saat ini dengan usulan. Untuk target food: target wajib "food", meal wajib berisi tepat satu menu pengganti lengkap untuk waktu makan yang diminta, workout wajib null, dan rows hanya membandingkan menu tersebut. Jangan menerapkan perubahan sebelum pengguna mengonfirmasi melalui tombol. Untuk pertanyaan atau ide yang tidak meminta perubahan, adjustment wajib null.`,
       },
       ...history,
     ],
@@ -1977,6 +2093,7 @@ export default async function handler(req: Request): Promise<Response> {
         p_height_cm: parsed.data.heightCm,
         p_initial_weight_kg: parsed.data.initialWeightKg,
         p_target_weight_kg: parsed.data.targetWeightKg,
+        p_goal_direction: parsed.data.goalDirection,
         p_weekly_target_kg: parsed.data.weeklyTargetKg,
         p_activity_level: parsed.data.activityLevel,
         p_meal_preference: parsed.data.mealPreference,

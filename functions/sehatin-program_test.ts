@@ -3,6 +3,7 @@ import {
   dailyPlanRotation,
   default as handler,
   deriveWorkoutAdaptation,
+  fallbackPlan,
   normalizeProgramRequestBody,
   redactSensitiveText,
   type UserContext,
@@ -35,6 +36,7 @@ Deno.test("AI context contains only the program attributes needed for generation
       current_weight_kg: 84.4,
       target_weight_kg: 75,
       weekly_target_kg: 0.5,
+      goal_direction: "lose",
       activity_level: "pemula",
       meal_preference: "seimbang",
       time_zone: "Asia/Makassar",
@@ -82,6 +84,7 @@ Deno.test("AI context contains only the program attributes needed for generation
     currentWeightKg: 84,
     targetWeightKg: 75,
     weeklyTargetKg: 0.5,
+    goalDirection: "lose",
     activityLevel: "pemula",
     mealPreference: "seimbang",
     recentGoalStatuses: ["active"],
@@ -164,6 +167,35 @@ Deno.test("workout adaptation does not treat non-consecutive missed weeks as a s
     shouldEase: false,
     shouldProgress: false,
   });
+});
+
+Deno.test("weight-gain fallback prioritizes strength and more energy-dense meals", () => {
+  const base: UserContext = {
+    profile: {
+      goal_direction: "lose",
+      activity_level: "pemula",
+      meal_preference: "seimbang",
+    },
+    weightLogs: [],
+    weeklyGoals: [],
+    latestPackage: null,
+    latestExercises: [],
+    latestWorkoutResult: null,
+  };
+  const lossPlan = fallbackPlan(base, "onboarding", "2026-09-05");
+  const gainPlan = fallbackPlan({
+    ...base,
+    profile: { ...base.profile, goal_direction: "gain" },
+  }, "onboarding", "2026-09-05");
+
+  if (!gainPlan.workout.purpose.toLowerCase().includes("kekuatan")) {
+    throw new Error("Expected a strength-oriented gain workout");
+  }
+  const lossCalories = lossPlan.meals.reduce((sum, meal) => sum + meal.nutrition.calories, 0);
+  const gainCalories = gainPlan.meals.reduce((sum, meal) => sum + meal.nutrition.calories, 0);
+  if (gainCalories <= lossCalories) {
+    throw new Error("Expected gain meals to contain more energy than loss meals");
+  }
 });
 
 Deno.test("log redaction removes common credentials and direct identifiers", () => {

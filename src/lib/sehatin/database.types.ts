@@ -6,6 +6,7 @@ export type ProfileRow = {
   initial_weight_kg: string | number;
   current_weight_kg: string | number;
   target_weight_kg: string | number;
+  goal_direction: "lose" | "gain";
   weekly_target_kg: string | number;
   activity_level: "pemula" | "menengah" | "aktif";
   meal_preference: "seimbang" | "tinggi-protein" | "nabati";
@@ -22,6 +23,7 @@ export type WeeklyGoalRow = {
   start_weight_kg: string | number;
   target_weight_kg: string | number;
   status: "active" | "met" | "missed";
+  goal_direction: "lose" | "gain";
 };
 
 export type WeightLogRow = {
