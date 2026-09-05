@@ -2342,7 +2342,6 @@ dialog::backdrop {
   border: 1px solid var(--border-soft);
   border-radius: var(--radius);
   background: var(--surface);
-  box-shadow: var(--shadow);
   text-align: center;
 }
 
@@ -2657,6 +2656,18 @@ dialog::backdrop {
 .onboarding-form { display: grid; gap: 1rem; }
 .onboarding-section { padding: clamp(1rem, 3vw, 1.5rem); border: 1px solid var(--border-soft); border-radius: 1.1rem; background: var(--surface); box-shadow: var(--shadow); }
 .onboarding-section h2 { padding-block-end: 0.85rem; border-block-end: 1px solid var(--border-soft); font-size: 1.1rem; }
+.goal-direction-fieldset { display: grid; grid-column: 1 / -1; gap: 0.65rem; min-inline-size: 0; border: 0; }
+.goal-direction-fieldset legend { color: var(--text); font-size: 0.82rem; font-weight: 800; }
+.goal-direction-options { display: grid; gap: 0.75rem; }
+.goal-direction-option { display: grid; grid-template-columns: auto auto minmax(0, 1fr); align-items: start; gap: 0.7rem; padding: 0.9rem; border: 1px solid var(--border); border-radius: 0.9rem; background: var(--surface-soft); cursor: pointer; transition: border-color 160ms ease, background-color 160ms ease, transform 120ms ease; }
+.goal-direction-option:hover { border-color: var(--accent); }
+.goal-direction-option:active { transform: translateY(1px); }
+.goal-direction-option.is-selected { border-color: var(--foreground); background: var(--accent-soft); }
+.goal-direction-option input { margin-block-start: 0.2rem; accent-color: var(--accent); }
+.goal-direction-option > svg { margin-block-start: 0.05rem; color: var(--foreground); }
+.goal-direction-option span { display: grid; gap: 0.2rem; }
+.goal-direction-option strong { font-size: 0.88rem; }
+.goal-direction-option small { color: var(--muted); line-height: 1.55; }
 .ai-consent-card {
   padding: 1rem;
   border: 1px solid var(--border-soft);

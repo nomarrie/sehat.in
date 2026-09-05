@@ -2,12 +2,12 @@ import { BarbellIcon } from "@phosphor-icons/react/dist/ssr/Barbell";
 import { CheckCircleIcon } from "@phosphor-icons/react/dist/ssr/CheckCircle";
 import { ForkKnifeIcon } from "@phosphor-icons/react/dist/ssr/ForkKnife";
 import { HeartbeatIcon } from "@phosphor-icons/react/dist/ssr/Heartbeat";
-import { TrendDownIcon } from "@phosphor-icons/react/dist/ssr/TrendDown";
+import { TargetIcon } from "@phosphor-icons/react/dist/ssr/Target";
 import Link from "next/link";
 import type { ReactNode } from "react";
 
 const companionItems = [
-  { label: "Target mingguan", value: "0,5–1 kg", detail: "Rentang yang realistis", icon: TrendDownIcon },
+  { label: "Target mingguan", value: "Bertahap", detail: "Disesuaikan dengan arah program", icon: TargetIcon },
   { label: "Latihan bertahap", value: "Sesuai ritmemu", detail: "Intensitas mengikuti progres", icon: BarbellIcon },
   { label: "Pilihan makanan", value: "Tetap fleksibel", detail: "Arahan yang mudah dijalani", icon: ForkKnifeIcon },
 ] as const;

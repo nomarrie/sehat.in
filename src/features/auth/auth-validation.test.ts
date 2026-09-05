@@ -55,6 +55,7 @@ describe("auth validation", () => {
       initialWeightKg: "88.7",
       targetWeightKg: "75",
       weeklyTargetKg: "0.5",
+      goalDirection: "lose",
       activityLevel: "pemula",
       mealPreference: "seimbang",
     });
@@ -71,6 +72,7 @@ describe("auth validation", () => {
       initialWeightKg: "88.7",
       targetWeightKg: "75",
       weeklyTargetKg: "0.5",
+      goalDirection: "lose",
       activityLevel: "pemula",
       mealPreference: "seimbang",
       aiProcessingConsent: "on",
@@ -88,6 +90,7 @@ describe("auth validation", () => {
       initialWeightKg: "88.7",
       targetWeightKg: "90",
       weeklyTargetKg: "1.5",
+      goalDirection: "lose",
       activityLevel: "pemula",
       mealPreference: "seimbang",
     });
@@ -97,6 +100,43 @@ describe("auth validation", () => {
       const errors = result.error.flatten().fieldErrors;
       expect(errors.weeklyTargetKg).toContain("Target mingguan maksimal 1 kg.");
       expect(errors.targetWeightKg).toContain("Target berat harus lebih rendah dari berat awal.");
+    }
+  });
+
+  it("accepts a gradual weight-gain goal", () => {
+    const result = onboardingSchema.safeParse({
+      fullName: "Naila Putri",
+      age: "28",
+      heightCm: "165",
+      initialWeightKg: "52",
+      targetWeightKg: "58",
+      weeklyTargetKg: "0.25",
+      goalDirection: "gain",
+      activityLevel: "pemula",
+      mealPreference: "tinggi-protein",
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects a gain target below the starting weight", () => {
+    const result = onboardingSchema.safeParse({
+      fullName: "Naila Putri",
+      age: "28",
+      heightCm: "165",
+      initialWeightKg: "52",
+      targetWeightKg: "50",
+      weeklyTargetKg: "0.25",
+      goalDirection: "gain",
+      activityLevel: "pemula",
+      mealPreference: "seimbang",
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.flatten().fieldErrors.targetWeightKg).toContain(
+        "Target berat harus lebih tinggi dari berat awal.",
+      );
     }
   });
 });

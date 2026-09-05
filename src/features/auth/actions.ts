@@ -105,7 +105,7 @@ export async function completeOnboardingAction(_state: AuthFormState, formData: 
   const parsed = onboardingSchema.safeParse({
     fullName: formData.get("fullName"), age: formData.get("age"), heightCm: formData.get("heightCm"),
     initialWeightKg: formData.get("initialWeightKg"), targetWeightKg: formData.get("targetWeightKg"),
-    weeklyTargetKg: formData.get("weeklyTargetKg"), activityLevel: formData.get("activityLevel"), mealPreference: formData.get("mealPreference"),
+    goalDirection: formData.get("goalDirection"), weeklyTargetKg: formData.get("weeklyTargetKg"), activityLevel: formData.get("activityLevel"), mealPreference: formData.get("mealPreference"),
     aiProcessingConsent: formData.get("aiProcessingConsent"),
   });
   if (!parsed.success) return { errors: fieldErrors(parsed.error), message: "Periksa kembali data program kamu." };
@@ -119,6 +119,7 @@ export async function completeOnboardingAction(_state: AuthFormState, formData: 
     heightCm: parsed.data.heightCm,
     initialWeightKg: parsed.data.initialWeightKg,
     targetWeightKg: parsed.data.targetWeightKg,
+    goalDirection: parsed.data.goalDirection,
     weeklyTargetKg: parsed.data.weeklyTargetKg,
     activityLevel: parsed.data.activityLevel,
     mealPreference: parsed.data.mealPreference,

@@ -26,13 +26,40 @@ export const onboardingSchema = z.object({
   heightCm: z.coerce.number().min(100, "Tinggi minimal 100 cm.").max(250, "Tinggi maksimal 250 cm."),
   initialWeightKg: z.coerce.number().min(30, "Berat minimal 30 kg.").max(300, "Berat maksimal 300 kg."),
   targetWeightKg: z.coerce.number().min(30, "Target minimal 30 kg.").max(300, "Target maksimal 300 kg."),
-  weeklyTargetKg: z.coerce.number().min(0.5, "Target mingguan minimal 0,5 kg.").max(1, "Target mingguan maksimal 1 kg."),
+  goalDirection: z.enum(["lose", "gain"]),
+  weeklyTargetKg: z.coerce.number().min(0.25, "Target mingguan minimal 0,25 kg.").max(1, "Target mingguan maksimal 1 kg."),
   activityLevel: z.enum(["pemula", "menengah", "aktif"]),
   mealPreference: z.enum(["seimbang", "tinggi-protein", "nabati"]),
   aiProcessingConsent: z.enum(["on"]).optional().transform((value) => value === "on"),
-}).refine((value) => value.targetWeightKg < value.initialWeightKg, {
-  path: ["targetWeightKg"],
-  message: "Target berat harus lebih rendah dari berat awal.",
+}).superRefine((value, context) => {
+  if (value.goalDirection === "lose" && value.targetWeightKg >= value.initialWeightKg) {
+    context.addIssue({
+      code: "custom",
+      path: ["targetWeightKg"],
+      message: "Target berat harus lebih rendah dari berat awal.",
+    });
+  }
+  if (value.goalDirection === "gain" && value.targetWeightKg <= value.initialWeightKg) {
+    context.addIssue({
+      code: "custom",
+      path: ["targetWeightKg"],
+      message: "Target berat harus lebih tinggi dari berat awal.",
+    });
+  }
+  if (value.goalDirection === "gain" && value.weeklyTargetKg > 0.5) {
+    context.addIssue({
+      code: "custom",
+      path: ["weeklyTargetKg"],
+      message: "Target kenaikan mingguan maksimal 0,5 kg.",
+    });
+  }
+  if (value.goalDirection === "lose" && value.weeklyTargetKg < 0.5) {
+    context.addIssue({
+      code: "custom",
+      path: ["weeklyTargetKg"],
+      message: "Target penurunan mingguan minimal 0,5 kg.",
+    });
+  }
 });
 
 export type AuthFormState = {
