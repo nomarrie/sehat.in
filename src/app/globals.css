@@ -2541,6 +2541,7 @@ dialog::backdrop {
 .sign-in-form .auth-message:empty { display: none; }
 .sign-in-field { display: grid; gap: 0.42rem; }
 .sign-in-field > label { font-size: 0.78rem; font-weight: 750; }
+.sign-in-field-helper { color: var(--muted); font-size: 0.7rem; line-height: 1.45; }
 .sign-in-field > input,
 .sign-in-password-wrap { inline-size: 100%; min-block-size: 3.25rem; border: 1px solid var(--border); border-radius: 0.9rem; background: color-mix(in oklch, var(--surface-soft), transparent 36%); transition: border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease; }
 .sign-in-field > input { padding: 0.82rem 0.95rem; outline: none; font-size: 0.86rem; }
@@ -2634,6 +2635,7 @@ dialog::backdrop {
 .auth-divider::after { flex: 1; block-size: 1px; background: var(--border-soft); content: ""; }
 .oauth-actions { display: grid; gap: 0.65rem; }
 .field-error-list { display: grid; gap: 0.2rem; margin: -0.45rem 0 0; padding-inline-start: 1.2rem; color: var(--danger); font-size: 0.72rem; }
+.register-password-errors { margin-block-start: 0; }
 
 .auth-companion {
   display: none;
