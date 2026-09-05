@@ -11,7 +11,10 @@ const defaultPrimaryModel = "qwen/qwen3.8-27b";
 const defaultSecondaryModel = "openai/gpt-oss-120b";
 const groqChatCompletionsUrl = "https://api.groq.com/openai/v1/chat/completions";
 const modelTimeoutMs = 25_000;
+const maxRateLimitRetryMs = 5_000;
+const maxRateLimitJitterMs = 250;
 const qwenOnDemandMaxCompletionTokens = 1_000;
+const fullPlanMaxCompletionTokens = 2_400;
 const AI_CONSENT_VERSION = "2026-08-14";
 
 const exerciseSchema = z
@@ -529,6 +532,58 @@ function getGroqModels() {
   };
 }
 
+type GroqRateLimit = {
+  code: "groq_rate_limit_tokens" | "groq_rate_limit_requests" | "groq_rate_limit_unknown";
+  retryAfterMs: number | null;
+  remainingRequests: string | null;
+  remainingTokens: string | null;
+};
+
+function parseRetryAfterMs(value: string | null) {
+  if (value === null) return null;
+  const seconds = Number(value);
+  return Number.isFinite(seconds) && seconds >= 0
+    ? Math.ceil(seconds * 1_000)
+    : null;
+}
+
+async function readGroqRateLimit(response: Response): Promise<GroqRateLimit> {
+  const remainingRequests = response.headers.get("x-ratelimit-remaining-requests");
+  const remainingTokens = response.headers.get("x-ratelimit-remaining-tokens");
+  let message = "";
+
+  try {
+    const payload = await response.json();
+    if (typeof payload?.error?.message === "string") {
+      message = payload.error.message.toLowerCase();
+    }
+  } catch {
+    // The headers still let us classify most Groq rate-limit responses.
+  }
+
+  let code: GroqRateLimit["code"] = "groq_rate_limit_unknown";
+  if (/token|tpm|tpd|itpm|otpm/.test(message)) {
+    code = "groq_rate_limit_tokens";
+  } else if (/request|rpm|rpd/.test(message)) {
+    code = "groq_rate_limit_requests";
+  } else if (remainingTokens === "0") {
+    code = "groq_rate_limit_tokens";
+  } else if (remainingRequests === "0") {
+    code = "groq_rate_limit_requests";
+  }
+
+  return {
+    code,
+    retryAfterMs: parseRetryAfterMs(response.headers.get("retry-after")),
+    remainingRequests,
+    remainingTokens,
+  };
+}
+
+function wait(milliseconds: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
+}
+
 export async function callGroqModel<T>(
   parser: z.ZodType<T>,
   schemaName: string,
@@ -538,52 +593,91 @@ export async function callGroqModel<T>(
   model: string,
 ): Promise<ModelResult<T>> {
   try {
-    const aiResponse = await fetch(groqChatCompletionsUrl, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      signal: AbortSignal.timeout(modelTimeoutMs),
-      body: JSON.stringify({
-        model,
-        messages,
-        max_completion_tokens: model === defaultPrimaryModel
-          ? Math.min(maxCompletionTokens, qwenOnDemandMaxCompletionTokens)
-          : maxCompletionTokens,
-        reasoning_effort: "low",
-        response_format: {
-          type: "json_schema",
-          json_schema: {
-            name: schemaName,
-            strict: true,
-            schema: z.toJSONSchema(parser, { target: "draft-7" }),
-          },
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const aiResponse = await fetch(groqChatCompletionsUrl, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
         },
-      }),
-    });
-    if (!aiResponse.ok) {
-      return { ok: false, code: `groq_http_${aiResponse.status}`, model };
-    }
-    const payload = await aiResponse.json();
-    const content = payload?.choices?.[0]?.message?.content;
-    if (typeof content !== "string") {
-      return { ok: false, code: "groq_empty_response", model };
-    }
+        signal: AbortSignal.timeout(modelTimeoutMs),
+        body: JSON.stringify({
+          model,
+          messages,
+          max_completion_tokens: model === defaultPrimaryModel
+            ? Math.min(maxCompletionTokens, qwenOnDemandMaxCompletionTokens)
+            : maxCompletionTokens,
+          reasoning_effort: "low",
+          response_format: {
+            type: "json_schema",
+            json_schema: {
+              name: schemaName,
+              strict: true,
+              schema: z.toJSONSchema(parser, { target: "draft-7" }),
+            },
+          },
+        }),
+      });
+      if (!aiResponse.ok) {
+        if (aiResponse.status !== 429) {
+          return { ok: false, code: `groq_http_${aiResponse.status}`, model };
+        }
 
-    const parsed = parser.safeParse(JSON.parse(content));
-    if (!parsed.success) return { ok: false, code: "groq_invalid_response", model };
-    return {
-      ok: true,
-      data: parsed.data,
-      model: typeof payload.model === "string" ? payload.model : model,
-      promptTokens: Number.isFinite(payload?.usage?.prompt_tokens)
-        ? Number(payload.usage.prompt_tokens)
-        : null,
-      completionTokens: Number.isFinite(payload?.usage?.completion_tokens)
-        ? Number(payload.usage.completion_tokens)
-        : null,
-    };
+        const rateLimit = await readGroqRateLimit(aiResponse);
+        const shouldRetry = attempt === 0
+          && rateLimit.retryAfterMs !== null
+          && rateLimit.retryAfterMs <= maxRateLimitRetryMs;
+        if (!shouldRetry) {
+          console.warn("Groq model rate limit unavailable", {
+            model,
+            code: rateLimit.code,
+            retryAfterMs: rateLimit.retryAfterMs,
+            remainingRequests: rateLimit.remainingRequests,
+            remainingTokens: rateLimit.remainingTokens,
+          });
+          return { ok: false, code: rateLimit.code, model };
+        }
+
+        const jitterMs = rateLimit.retryAfterMs > 0
+          ? Math.floor(Math.random() * maxRateLimitJitterMs)
+          : 0;
+        const delayMs = Math.min(
+          rateLimit.retryAfterMs + jitterMs,
+          maxRateLimitRetryMs,
+        );
+        console.warn("Groq model rate limited; retrying once", {
+          model,
+          code: rateLimit.code,
+          retryAfterMs: rateLimit.retryAfterMs,
+          jitterMs,
+          delayMs,
+          remainingRequests: rateLimit.remainingRequests,
+          remainingTokens: rateLimit.remainingTokens,
+        });
+        await wait(delayMs);
+        continue;
+      }
+      const payload = await aiResponse.json();
+      const content = payload?.choices?.[0]?.message?.content;
+      if (typeof content !== "string") {
+        return { ok: false, code: "groq_empty_response", model };
+      }
+
+      const parsed = parser.safeParse(JSON.parse(content));
+      if (!parsed.success) return { ok: false, code: "groq_invalid_response", model };
+      return {
+        ok: true,
+        data: parsed.data,
+        model: typeof payload.model === "string" ? payload.model : model,
+        promptTokens: Number.isFinite(payload?.usage?.prompt_tokens)
+          ? Number(payload.usage.prompt_tokens)
+          : null,
+        completionTokens: Number.isFinite(payload?.usage?.completion_tokens)
+          ? Number(payload.usage.completion_tokens)
+          : null,
+      };
+    }
+    return { ok: false, code: "groq_request_failed", model };
   } catch (error) {
     const code = error instanceof DOMException && error.name === "TimeoutError"
       ? "groq_timeout"
@@ -1106,7 +1200,7 @@ export async function tryAiPlan(
         content: `Susun program untuk alasan ${reason} dari konteks minimum berikut: ${JSON.stringify(safeContext)}`,
       },
     ],
-    3000,
+    fullPlanMaxCompletionTokens,
     "secondary",
   );
 }
