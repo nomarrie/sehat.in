@@ -698,7 +698,6 @@ button:disabled {
   border: 1px solid var(--border-soft);
   border-radius: var(--radius);
   background: var(--surface);
-  /* box-shadow: var(--shadow); */
 }
 
 .weekly-target,
@@ -1809,7 +1808,7 @@ button:disabled {
   border: 1px solid var(--border-soft);
   border-radius: var(--radius);
   background: var(--surface);
-  box-shadow: var(--shadow);
+  /* box-shadow: var(--shadow); */
 }
 
 .nutrition-section {
@@ -2076,7 +2075,6 @@ button:disabled {
   border: 1px solid var(--border-soft);
   border-radius: var(--radius);
   background: var(--surface);
-  box-shadow: var(--shadow);
 }
 
 .session-intro {
@@ -2529,7 +2527,7 @@ dialog::backdrop {
 .settings-actions { display: grid; gap: 0.8rem; padding: 1rem; border: 1px solid var(--border-soft); border-radius: 1rem; background: var(--surface); }
 .settings-actions > div { display: grid; gap: 0.6rem; }
 .settings-actions .button { inline-size: 100%; }
-.settings-message { min-block-size: 1.25rem; color: var(--accent); font-size: 0.78rem; font-weight: 600; }
+.settings-message { min-block-size: 1.25rem; color: var(--foreground); font-size: 0.78rem; font-weight: 600; }
 .settings-message.is-error { color: var(--danger); }
 
 /* Authentication and onboarding */
@@ -3794,6 +3792,7 @@ dialog::backdrop {
 }
 
 .chat-thread-navigation > h2 {
+  margin-top: 0.5rem;
   color: var(--muted);
   font-size: 0.68rem;
   font-weight: 750;
