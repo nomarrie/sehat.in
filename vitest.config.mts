@@ -19,6 +19,12 @@ export default defineConfig({
         ),
       },
       {
+        find: "npm:resend@6.26.0",
+        replacement: fileURLToPath(
+          new URL("./node_modules/resend/dist/index.mjs", import.meta.url),
+        ),
+      },
+      {
         find: "@",
         replacement: fileURLToPath(new URL("./src", import.meta.url)),
       },
