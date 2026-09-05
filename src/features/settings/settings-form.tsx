@@ -87,7 +87,7 @@ export function SettingsForm({ initialSettings, mode = "all" }: SettingsFormProp
     <div className="settings-page">
       <header className="settings-header">
         <div>
-          {mode !== "all" && <Link className="profile-back-link" href="/profile"><ArrowLeftIcon size={18} />Kembali ke profil</Link>}
+          {mode !== "all" && <Link className="profile-back-link" href="/dashboard"><ArrowLeftIcon size={18} />Kembali ke dashboard</Link>}
           <h1>{mode === "program" ? "Data program" : mode === "preferences" ? "Preferensi pribadi" : "Pengaturan"}</h1>
           <p>{mode === "program" ? "Sesuaikan data yang menjadi dasar target dan rekomendasimu." : "Kelola identitas dan cara Sehat.in mengingatkanmu."}</p>
         </div>

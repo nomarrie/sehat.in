@@ -9,6 +9,12 @@ vi.mock("./actions", () => ({
 }));
 
 describe("SettingsForm", () => {
+  it("returns split settings pages to the dashboard", () => {
+    render(<SettingsForm initialSettings={profileSettings} mode="program" />);
+
+    expect(screen.getByRole("link", { name: "Kembali ke dashboard" })).toHaveAttribute("href", "/dashboard");
+  });
+
   it("persists an edited name through the server action", async () => {
     const user = userEvent.setup();
     render(<SettingsForm initialSettings={profileSettings} />);
