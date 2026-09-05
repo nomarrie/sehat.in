@@ -4,13 +4,24 @@ import { getInsForgeConfig } from "@/lib/insforge/config";
 import { getAuthCookieOptions, isRememberMeEnabled } from "@/lib/insforge/auth-session";
 
 export async function proxy(request: NextRequest) {
-  const response = NextResponse.next({ request });
+  if (request.nextUrl.pathname === "/api/auth/refresh") {
+    return NextResponse.next();
+  }
+
+  const sessionResponse = NextResponse.next();
   await updateSession({
     ...getInsForgeConfig(),
     requestCookies: request.cookies,
-    responseCookies: response.cookies,
+    responseCookies: sessionResponse.cookies,
     options: getAuthCookieOptions(isRememberMeEnabled(request.cookies)),
   });
+
+  const response = NextResponse.next({
+    request: { headers: new Headers(request.headers) },
+  });
+  for (const cookie of sessionResponse.cookies.getAll()) {
+    response.cookies.set(cookie);
+  }
   return response;
 }
 
