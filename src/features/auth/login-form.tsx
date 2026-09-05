@@ -8,9 +8,9 @@ export function LoginForm({ notice }: { notice?: string }) {
   const [state, action, pending] = useActionState(signInAction, {});
   const [oauthPending, startOAuthTransition] = useTransition();
 
-  function startOAuth(provider: "google" | "facebook") {
+  function startOAuth(provider: "google" | "facebook", rememberMe: boolean) {
     startOAuthTransition(() => {
-      void initiateOAuth(provider);
+      void initiateOAuth(provider, rememberMe);
     });
   }
 
@@ -20,8 +20,8 @@ export function LoginForm({ notice }: { notice?: string }) {
       state={state}
       pending={pending || oauthPending}
       formAction={action}
-      onGoogleSignIn={() => startOAuth("google")}
-      onFacebookSignIn={() => startOAuth("facebook")}
+      onGoogleSignIn={(rememberMe) => startOAuth("google", rememberMe)}
+      onFacebookSignIn={(rememberMe) => startOAuth("facebook", rememberMe)}
     />
   );
 }

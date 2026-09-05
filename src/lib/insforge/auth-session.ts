@@ -1,8 +1,10 @@
 import type { AuthCookieOptions } from "@insforge/sdk/ssr";
 
 export const REMEMBER_ME_COOKIE = "sehatin_remember_me";
+export const OAUTH_REMEMBER_ME_COOKIE = "sehatin_oauth_remember_me";
 
 const REFRESH_TOKEN_LIFETIME_SECONDS = 60 * 60 * 24 * 7;
+const OAUTH_INTENT_LIFETIME_SECONDS = 60 * 10;
 const SESSION_COOKIE = { expires: undefined, maxAge: undefined } as const;
 
 type CookieReader = {
@@ -28,5 +30,15 @@ export function getRememberMeCookieOptions() {
     sameSite: "lax" as const,
     path: "/",
     maxAge: REFRESH_TOKEN_LIFETIME_SECONDS,
+  };
+}
+
+export function getOAuthRememberMeCookieOptions() {
+  return {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax" as const,
+    path: "/",
+    maxAge: OAUTH_INTENT_LIFETIME_SECONDS,
   };
 }

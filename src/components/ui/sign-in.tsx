@@ -23,8 +23,8 @@ export type SignInPageProps = {
   state?: SignInState;
   pending: boolean;
   formAction: (formData: FormData) => void | Promise<void>;
-  onGoogleSignIn: () => void;
-  onFacebookSignIn: () => void;
+  onGoogleSignIn: (rememberMe: boolean) => void;
+  onFacebookSignIn: (rememberMe: boolean) => void;
 };
 
 const companionItems = [
@@ -50,6 +50,7 @@ export function SignInPage({
   const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [rememberMe, setRememberMe] = useState(false);
   const emailError = state.errors?.email;
   const passwordError = state.errors?.password;
 
@@ -122,7 +123,15 @@ export function SignInPage({
             </div>
 
             <div className="sign-in-options sign-in-reveal sign-in-delay-7">
-              <label><input type="checkbox" name="rememberMe" /><span>Ingat saya</span></label>
+              <label>
+                <input
+                  type="checkbox"
+                  name="rememberMe"
+                  checked={rememberMe}
+                  onChange={(event) => setRememberMe(event.currentTarget.checked)}
+                />
+                <span>Ingat saya</span>
+              </label>
               <Link href="/reset-password">Lupa kata sandi?</Link>
             </div>
 
@@ -140,7 +149,7 @@ export function SignInPage({
           <div className="auth-divider sign-in-reveal sign-in-delay-9"><span>atau lanjutkan dengan</span></div>
 
           <div className="sign-in-oauth sign-in-reveal sign-in-delay-10">
-            <button className="button button-secondary" type="button" onClick={onGoogleSignIn} disabled={pending}>
+            <button className="button button-secondary" type="button" onClick={() => onGoogleSignIn(rememberMe)} disabled={pending}>
               <Image
                 src="/images/auth/google.svg"
                 alt=""
@@ -151,7 +160,7 @@ export function SignInPage({
               />
               Lanjutkan dengan Google
             </button>
-            <button className="button button-secondary" type="button" onClick={onFacebookSignIn} disabled={pending}>
+            <button className="button button-secondary" type="button" onClick={() => onFacebookSignIn(rememberMe)} disabled={pending}>
               <Image
                 src="/images/auth/facebook.svg"
                 alt=""

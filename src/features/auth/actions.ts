@@ -8,7 +8,9 @@ import { getInsForgeConfig } from "@/lib/insforge/config";
 import { getBackendErrorMessage } from "@/lib/insforge/errors";
 import {
   getAuthCookieOptions,
+  getOAuthRememberMeCookieOptions,
   getRememberMeCookieOptions,
+  OAUTH_REMEMBER_ME_COOKIE,
   REMEMBER_ME_COOKIE,
 } from "@/lib/insforge/auth-session";
 import {
@@ -73,7 +75,7 @@ export async function verifyEmailAction(_state: AuthFormState, formData: FormDat
   redirect("/onboarding");
 }
 
-export async function initiateOAuth(provider: string) {
+export async function initiateOAuth(provider: string, rememberMe: boolean) {
   if (!new Set(["google", "facebook"]).has(provider)) redirect("/login?error=provider");
   const cookieStore = await cookies();
   const auth = createAuthActions({ ...getInsForgeConfig(), cookies: cookieStore });
@@ -83,6 +85,11 @@ export async function initiateOAuth(provider: string) {
   cookieStore.set("insforge_code_verifier", data.codeVerifier, {
     httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/", maxAge: 600,
   });
+  cookieStore.set(
+    OAUTH_REMEMBER_ME_COOKIE,
+    rememberMe === true ? "1" : "0",
+    getOAuthRememberMeCookieOptions(),
+  );
   redirect(data.url);
 }
 

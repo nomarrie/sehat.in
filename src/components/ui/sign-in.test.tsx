@@ -103,7 +103,9 @@ describe("SignInPage", () => {
       />,
     );
 
+    await user.click(screen.getByRole("checkbox", { name: "Ingat saya" }));
     await user.click(screen.getByRole("button", { name: "Lanjutkan dengan Google" }));
+    await user.click(screen.getByRole("checkbox", { name: "Ingat saya" }));
     await user.click(screen.getByRole("button", { name: "Lanjutkan dengan Facebook" }));
     expect(
       screen.getByRole("button", { name: "Lanjutkan dengan Google" }).querySelector("img"),
@@ -111,8 +113,8 @@ describe("SignInPage", () => {
     expect(
       screen.getByRole("button", { name: "Lanjutkan dengan Facebook" }).querySelector("img"),
     ).toHaveAttribute("src", "/images/auth/facebook.svg");
-    expect(onGoogleSignIn).toHaveBeenCalledOnce();
-    expect(onFacebookSignIn).toHaveBeenCalledOnce();
+    expect(onGoogleSignIn).toHaveBeenCalledWith(true);
+    expect(onFacebookSignIn).toHaveBeenCalledWith(false);
     expect(screen.queryByRole("button", { name: "Lanjutkan dengan GitHub" })).not.toBeInTheDocument();
 
     rerender(<SignInPage {...baseProps} pending />);
