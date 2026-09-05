@@ -1,5 +1,6 @@
 export type ActivityLevel = "pemula" | "menengah" | "aktif";
 export type MealPreference = "seimbang" | "tinggi-protein" | "nabati";
+export type GoalDirection = "lose" | "gain";
 
 export type ProfileSettings = {
   fullName: string;
@@ -9,6 +10,7 @@ export type ProfileSettings = {
   currentWeightKg: number;
   targetWeightKg: number;
   weeklyTargetKg: number;
+  goalDirection: GoalDirection;
   activityLevel: ActivityLevel;
   mealPreference: MealPreference;
   aiProcessingConsent: boolean;

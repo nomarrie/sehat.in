@@ -14,6 +14,7 @@ import type {
 import type { FoodRecommendation, FoodRecommendationContext } from "@/features/food/food.types";
 import type { ProfileSettings } from "@/features/settings/settings.types";
 import type { ExercisePackage } from "@/features/workouts/workout.types";
+import { nextWeeklyTarget } from "@/lib/sehatin/goals";
 import { requireOnboardedUser } from "@/lib/auth/guards";
 import type {
   ExercisePackageRow,
@@ -169,7 +170,7 @@ export async function loadDashboardData(): Promise<DashboardData> {
 
   const [logsResult, goalResult, streakResult, sessionsResult, badgeResult, notificationResult, workoutPackage] = await Promise.all([
     client.database.from("weight_logs").select("weight_kg, logged_on").order("logged_on", { ascending: true }).limit(52),
-    client.database.from("weekly_goals").select("start_weight_kg, target_weight_kg, status").order("week_start", { ascending: false }).limit(1),
+    client.database.from("weekly_goals").select("start_weight_kg, target_weight_kg, goal_direction, status").order("week_start", { ascending: false }).limit(1),
     client.database.from("streaks").select("current_streak, longest_streak").eq("user_id", user.id).maybeSingle(),
     client.database.from("exercise_sessions").select("active_duration_seconds").eq("activity_date", today).limit(50),
     client.database.from("user_badges").select("earned_at, badges(name, description)").order("earned_at", { ascending: false }).limit(1),
@@ -197,10 +198,11 @@ export async function loadDashboardData(): Promise<DashboardData> {
       initialWeight: Number(profile.initial_weight_kg),
       currentWeight,
       targetWeight: Number(profile.target_weight_kg),
+      goalDirection: profile.goal_direction,
     },
     weeklyGoal: latestGoal
       ? { startWeight: Number(latestGoal.start_weight_kg), currentWeight, targetWeight: Number(latestGoal.target_weight_kg) }
-      : { startWeight: currentWeight, currentWeight, targetWeight: Math.max(Number(profile.target_weight_kg), currentWeight - Number(profile.weekly_target_kg)) },
+      : { startWeight: currentWeight, currentWeight, targetWeight: nextWeeklyTarget(currentWeight, Number(profile.target_weight_kg), Number(profile.weekly_target_kg), profile.goal_direction) },
     weightLogs: logs.map(mapWeightLog),
     streak: {
       currentDays: Number(streakResult.data?.current_streak ?? 0),
@@ -225,6 +227,7 @@ export async function loadProfileSettings(): Promise<ProfileSettings> {
     heightCm: Number(profile.height_cm),
     currentWeightKg: Number(profile.current_weight_kg),
     targetWeightKg: Number(profile.target_weight_kg),
+    goalDirection: profile.goal_direction,
     weeklyTargetKg: Number(profile.weekly_target_kg),
     activityLevel: profile.activity_level,
     mealPreference: profile.meal_preference,

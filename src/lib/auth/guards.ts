@@ -12,7 +12,7 @@ export const getOptionalAuthContext = cache(async function getOptionalAuthContex
 
   const profileResult = await client.database
     .from("profiles")
-    .select("user_id, full_name, age, height_cm, initial_weight_kg, current_weight_kg, target_weight_kg, weekly_target_kg, activity_level, meal_preference, ai_processing_consent_at, ai_processing_consent_version, reminder_enabled, reminder_time, weekly_summary_enabled, time_zone, onboarding_completed_at")
+    .select("user_id, full_name, age, height_cm, initial_weight_kg, current_weight_kg, target_weight_kg, goal_direction, weekly_target_kg, activity_level, meal_preference, ai_processing_consent_at, ai_processing_consent_version, reminder_enabled, reminder_time, weekly_summary_enabled, time_zone, onboarding_completed_at")
     .eq("user_id", data.user.id)
     .maybeSingle();
 

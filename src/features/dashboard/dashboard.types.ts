@@ -1,4 +1,5 @@
 import type { ExercisePackage } from "@/features/workouts/workout.types";
+import type { GoalDirection } from "@/lib/sehatin/goals";
 
 export type WeightLog = {
   date: string;
@@ -38,6 +39,7 @@ export type DashboardData = {
     initialWeight: number;
     currentWeight: number;
     targetWeight: number;
+    goalDirection: GoalDirection;
   };
   weeklyGoal: WeeklyGoal;
   weightLogs: WeightLog[];

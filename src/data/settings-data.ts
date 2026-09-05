@@ -9,6 +9,7 @@ export const profileSettings: ProfileSettings = {
   currentWeightKg: dashboardData.user.currentWeight,
   targetWeightKg: dashboardData.user.targetWeight,
   weeklyTargetKg: 0.6,
+  goalDirection: "lose",
   activityLevel: "pemula",
   mealPreference: "seimbang",
   aiProcessingConsent: false,

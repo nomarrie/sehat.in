@@ -71,6 +71,7 @@ export const dashboardData: DashboardData = {
     initialWeight: 92.4,
     currentWeight: 88.7,
     targetWeight: 72,
+    goalDirection: "lose",
   },
   weeklyGoal: {
     startWeight: 89.2,
