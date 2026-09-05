@@ -863,6 +863,10 @@ button:disabled {
   background: oklch(0.82 0.16 142);
 }
 
+.status-chip-empty > span {
+  background: color-mix(in oklch, var(--hero-text), transparent 42%);
+}
+
 .today-workout-copy {
   display: grid;
   gap: 0.5rem;
@@ -1169,12 +1173,13 @@ button:disabled {
 
 .empty-state {
   display: grid;
+  align-content: start;
   justify-items: start;
   gap: 0.7rem;
 }
 
 .empty-state > svg {
-  color: var(--accent);
+  color: var(--foreground);
 }
 
 .empty-state p {
@@ -2396,7 +2401,7 @@ dialog::backdrop {
   inline-size: 100%;
   margin-block-start: 0.8rem;
   padding: 1rem;
-  border: 1px solid color-mix(in oklch, var(--accent), transparent 64%);
+  /* border: 1px solid color-mix(in oklch, var(--accent), transparent 64%); */
   border-radius: 0.85rem;
   background: var(--accent-soft);
   text-align: start;
@@ -2930,7 +2935,8 @@ dialog::backdrop {
     grid-column: 1 / 8;
   }
 
-  .today-workout {
+  .today-workout,
+  .dashboard-empty-workout {
     grid-column: 8 / -1;
     grid-row: span 2;
   }
@@ -3019,7 +3025,8 @@ dialog::backdrop {
   }
 
   .weekly-target,
-  .today-workout {
+  .today-workout,
+  .dashboard-empty-workout {
     min-block-size: 18rem;
   }
 
