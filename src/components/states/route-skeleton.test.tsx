@@ -2,7 +2,7 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { RouteSkeleton, type RouteSkeletonVariant } from "./route-skeleton";
 
-const expectedSections: Record<Exclude<RouteSkeletonVariant, "chat" | "onboarding">, string[]> = {
+const expectedSections: Record<Exclude<RouteSkeletonVariant, "chat" | "onboarding" | "session">, string[]> = {
   dashboard: ["dashboard-heading", "weekly-target", "today-workout", "streak-summary", "weight-trend"],
   food: ["food-hero", "food-day-plan", "food-card-list", "food-note"],
   "food-detail": ["food-detail-hero", "nutrition", "ingredients", "cooking", "food-disclaimer"],
@@ -76,5 +76,20 @@ describe("RouteSkeleton", () => {
     expect(container.querySelector('[data-skeleton-section="onboarding-consent"]')).toBeInTheDocument();
     expect(container.querySelectorAll("[data-skeleton-onboarding-field]")).toHaveLength(8);
     expect(container.querySelectorAll("[data-skeleton-goal-option]")).toHaveLength(2);
+  });
+
+  it("uses the standalone training structure for the session fallback", () => {
+    const { container } = render(<RouteSkeleton variant="session" />);
+
+    const session = container.querySelector("[data-skeleton-session]");
+    expect(session).toHaveAttribute("aria-hidden", "true");
+    expect(session).toHaveAttribute("inert");
+    expect(session).toHaveAttribute("data-skeleton-variant", "session");
+    expect(container.querySelector("[data-skeleton-shell]")).not.toBeInTheDocument();
+    expect(container.querySelector('[data-skeleton-section="session-header"]')).toBeInTheDocument();
+    expect(container.querySelector('[data-skeleton-section="session-progress"]')).toBeInTheDocument();
+    expect(container.querySelector('[data-skeleton-section="session-intro"]')).toBeInTheDocument();
+    expect(container.querySelector('[data-skeleton-section="session-action"]')).toBeInTheDocument();
+    expect(container.querySelectorAll("[data-skeleton-session-fact]")).toHaveLength(3);
   });
 });

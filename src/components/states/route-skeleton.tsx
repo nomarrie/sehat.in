@@ -7,7 +7,8 @@ export type RouteSkeletonVariant =
   | "food-detail"
   | "profile"
   | "chat"
-  | "onboarding";
+  | "onboarding"
+  | "session";
 
 type LineSize = "xs" | "sm" | "md" | "lg" | "xl" | "full";
 
@@ -629,7 +630,68 @@ function ChatSkeleton() {
   );
 }
 
-const skeletons: Record<Exclude<RouteSkeletonVariant, "chat" | "onboarding">, () => React.ReactNode> = {
+function SessionSkeleton() {
+  return (
+    <main
+      className="route-skeleton-session"
+      data-skeleton-session
+      data-skeleton-variant="session"
+      aria-hidden="true"
+      inert
+    >
+      <header
+        className="route-skeleton-session-header"
+        data-skeleton-section="session-header"
+      >
+        <div className="route-skeleton-copy">
+          <Line size="sm" />
+          <Skeleton className="route-skeleton-session-title" />
+        </div>
+        <Skeleton className="route-skeleton-session-exit" />
+      </header>
+
+      <section
+        className="route-skeleton-session-progress"
+        data-skeleton-section="session-progress"
+      >
+        <div className="route-skeleton-session-progress-labels">
+          <Line size="sm" />
+          <Line size="sm" />
+        </div>
+        <Skeleton className="route-skeleton-session-progress-track" />
+      </section>
+
+      <section
+        className="route-skeleton-session-intro"
+        data-skeleton-section="session-intro"
+      >
+        <Skeleton className="route-skeleton-session-icon" />
+        <Line size="sm" />
+        <Skeleton className="route-skeleton-session-heading" />
+        <div className="route-skeleton-copy route-skeleton-session-description">
+          <Line size="full" />
+          <Line size="lg" />
+        </div>
+        <div className="route-skeleton-session-facts">
+          {Array.from({ length: 3 }, (_, index) => (
+            <div className="route-skeleton-session-fact" data-skeleton-session-fact key={index}>
+              <Line size="md" />
+              <Line size="lg" />
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <Skeleton
+        className="route-skeleton-session-action"
+        data-skeleton-section="session-action"
+      />
+      <Skeleton className="route-skeleton-session-note" />
+    </main>
+  );
+}
+
+const skeletons: Record<Exclude<RouteSkeletonVariant, "chat" | "onboarding" | "session">, () => React.ReactNode> = {
   dashboard: DashboardSkeleton,
   food: FoodSkeleton,
   "food-detail": FoodDetailSkeleton,
@@ -644,6 +706,10 @@ export function RouteSkeleton({ variant }: { variant: RouteSkeletonVariant }) {
 
   if (variant === "onboarding") {
     return <OnboardingSkeleton />;
+  }
+
+  if (variant === "session") {
+    return <SessionSkeleton />;
   }
 
   const ContentSkeleton = skeletons[variant];
