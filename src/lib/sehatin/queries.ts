@@ -147,7 +147,10 @@ async function loadDailyPlanSnapshot(client: SehatinClient, scheduledFor: string
 
 async function loadReadyDailyPlanSnapshot(client: SehatinClient, scheduledFor: string) {
   let snapshot = await loadDailyPlanSnapshot(client, scheduledFor);
-  if (snapshot.packageRow && snapshot.recommendationSet) return snapshot;
+  if (
+    snapshot.packageRow?.status === "active"
+    && snapshot.recommendationSet
+  ) return snapshot;
 
   await ensureDailyPlan(client);
   snapshot = await loadDailyPlanSnapshot(client, scheduledFor);

@@ -1506,6 +1506,7 @@ async function ensureDailyPlan(
       .eq("user_id", userId)
       .eq("scheduled_for", today)
       .eq("generation_status", "ready")
+      .eq("status", "active")
       .order("created_at", { ascending: false })
       .limit(1),
     admin.database.from("nutrition_recommendation_sets")
