@@ -66,4 +66,5 @@ export type AuthFormState = {
   message?: string;
   errors?: Record<string, string[]>;
   verificationEmail?: string;
+  passwordResetStep?: "request" | "verify" | "password";
 };

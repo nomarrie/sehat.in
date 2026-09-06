@@ -21,6 +21,25 @@ import {
   type AuthFormState,
 } from "./auth-validation";
 
+const PASSWORD_RESET_TOKEN_COOKIE = "sehatin_password_reset_token";
+
+function getPasswordResetCookieOptions() {
+  return {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "strict" as const,
+    path: "/reset-password",
+    maxAge: 600,
+  };
+}
+
+function clearPasswordResetCookie(cookieStore: Awaited<ReturnType<typeof cookies>>) {
+  cookieStore.set(PASSWORD_RESET_TOKEN_COOKIE, "", {
+    ...getPasswordResetCookieOptions(),
+    maxAge: 0,
+  });
+}
+
 function fieldErrors(error: { flatten: () => { fieldErrors: Record<string, string[]> } }) {
   return error.flatten().fieldErrors;
 }
@@ -135,27 +154,82 @@ export async function completeOnboardingAction(_state: AuthFormState, formData: 
 
 export async function requestPasswordResetAction(_state: AuthFormState, formData: FormData): Promise<AuthFormState> {
   const emailResult = signInSchema.shape.email.safeParse(formData.get("email"));
-  if (!emailResult.success) return { errors: { email: [emailResult.error.issues[0]?.message ?? "Email tidak valid."] } };
+  if (!emailResult.success) return { passwordResetStep: "request", errors: { email: [emailResult.error.issues[0]?.message ?? "Email tidak valid."] } };
+  clearPasswordResetCookie(await cookies());
   const client = await createInsForgeServerClient();
   const { error } = await client.auth.sendResetPasswordEmail({ email: emailResult.data, redirectTo: `${process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"}/reset-password` });
   return error
-    ? { message: getBackendErrorMessage(error, "Kode pemulihan belum dapat dikirim.") }
-    : { verificationEmail: emailResult.data, message: "Jika akun tersedia, kode pemulihan sudah dikirim ke email tersebut." };
+    ? { passwordResetStep: "request", message: getBackendErrorMessage(error, "Kode pemulihan belum dapat dikirim.") }
+    : { passwordResetStep: "verify", verificationEmail: emailResult.data, message: "Jika akun tersedia, kode pemulihan sudah dikirim ke email tersebut." };
+}
+
+export async function verifyPasswordResetCodeAction(_state: AuthFormState, formData: FormData): Promise<AuthFormState> {
+  const email = String(formData.get("email") ?? "").trim();
+  const otp = String(formData.get("otp") ?? "").trim();
+  const verification = verificationSchema.safeParse({ email, otp });
+  if (!verification.success) {
+    return {
+      passwordResetStep: "verify",
+      verificationEmail: email,
+      errors: { otp: ["Masukkan kode 6 digit."] },
+      message: "Periksa kembali kode pemulihan.",
+    };
+  }
+  const client = await createInsForgeServerClient();
+  const tokenResult = await client.auth.exchangeResetPasswordToken({ email, code: otp });
+  if (tokenResult.error || !tokenResult.data?.token) {
+    return {
+      passwordResetStep: "verify",
+      verificationEmail: email,
+      message: "Kode pemulihan tidak valid atau sudah kedaluwarsa.",
+    };
+  }
+  (await cookies()).set(
+    PASSWORD_RESET_TOKEN_COOKIE,
+    tokenResult.data.token,
+    getPasswordResetCookieOptions(),
+  );
+  return {
+    passwordResetStep: "password",
+    verificationEmail: email,
+    message: "Kode berhasil diverifikasi. Sekarang buat kata sandi baru.",
+  };
 }
 
 export async function resetPasswordAction(_state: AuthFormState, formData: FormData): Promise<AuthFormState> {
   const email = String(formData.get("email") ?? "").trim();
-  const otp = String(formData.get("otp") ?? "").trim();
   const newPassword = String(formData.get("newPassword") ?? "");
-  const verification = verificationSchema.safeParse({ email, otp });
+  const confirmNewPassword = String(formData.get("confirmNewPassword") ?? "");
+  const cookieStore = await cookies();
+  const resetToken = cookieStore.get(PASSWORD_RESET_TOKEN_COOKIE)?.value;
+  if (!resetToken) {
+    return {
+      passwordResetStep: "request",
+      message: "Verifikasi kode pemulihan terlebih dahulu.",
+    };
+  }
   const password = signUpSchema.shape.password.safeParse(newPassword);
-  if (!verification.success || !password.success) {
-    return { verificationEmail: email, errors: { otp: verification.success ? [] : ["Masukkan kode 6 digit."], newPassword: password.success ? [] : password.error.issues.map((issue) => issue.message) }, message: "Periksa kode dan kata sandi baru." };
+  const passwordsMatch = newPassword === confirmNewPassword;
+  if (!password.success || !passwordsMatch) {
+    return {
+      passwordResetStep: "password",
+      verificationEmail: email,
+      errors: {
+        newPassword: password.success ? [] : password.error.issues.map((issue) => issue.message),
+        confirmNewPassword: passwordsMatch ? [] : ["Konfirmasi kata sandi tidak sama."],
+      },
+      message: "Periksa kembali kata sandi baru.",
+    };
   }
   const client = await createInsForgeServerClient();
-  const tokenResult = await client.auth.exchangeResetPasswordToken({ email, code: otp });
-  if (tokenResult.error || !tokenResult.data?.token) return { verificationEmail: email, message: "Kode pemulihan tidak valid atau sudah kedaluwarsa." };
-  const resetResult = await client.auth.resetPassword({ newPassword, otp: tokenResult.data.token });
-  if (resetResult.error) return { verificationEmail: email, message: getBackendErrorMessage(resetResult.error, "Kata sandi belum dapat diperbarui.") };
+  const resetResult = await client.auth.resetPassword({ newPassword, otp: resetToken });
+  if (resetResult.error) {
+    clearPasswordResetCookie(cookieStore);
+    return {
+      passwordResetStep: "request",
+      message: getBackendErrorMessage(resetResult.error, "Verifikasi sudah kedaluwarsa. Minta kode pemulihan baru."),
+    };
+  }
+  clearPasswordResetCookie(cookieStore);
   redirect("/login?reset=success");
 }

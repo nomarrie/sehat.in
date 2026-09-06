@@ -3474,6 +3474,7 @@ dialog::backdrop {
 .sign-in-password-wrap { inline-size: 100%; min-block-size: 3.25rem; border: 1px solid var(--border); border-radius: 0.9rem; background: color-mix(in oklch, var(--surface-soft), transparent 36%); transition: border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease; }
 .sign-in-field > input { padding: 0.82rem 0.95rem; outline: none; font-size: 0.86rem; }
 .sign-in-password-wrap input { padding: 0.82rem 0.95rem; border: 0; background: transparent; outline: none; font-size: 0.86rem; }
+.form-field .sign-in-password-wrap input:focus-visible { box-shadow: none; }
 .sign-in-field > input:focus,
 .sign-in-password-wrap:focus-within { border-color: var(--accent); background: var(--surface); box-shadow: 0 0 0 3px color-mix(in oklch, var(--accent), transparent 78%); }
 .sign-in-field > input[aria-invalid="true"],
