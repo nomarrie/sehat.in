@@ -17,6 +17,32 @@ const actions = {
 };
 
 describe("ResetPasswordFormView", () => {
+  it("renders the recovery request inside the animated login experience", () => {
+    render(
+      <ResetPasswordFormView
+        {...actions}
+        state={{}}
+        requesting={false}
+        verifying={false}
+        resetting={false}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "Pulihkan akses akun" })).toBeInTheDocument();
+    expect(screen.getByRole("complementary", { name: "Cara Sehat.in mendampingi programmu" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Kembali masuk" })).toHaveAttribute("href", "/login");
+    expect(screen.getByRole("textbox", { name: "Email akun" })).toHaveAttribute("placeholder", "nama@email.com");
+    expect(screen.getByRole("textbox", { name: "Email akun" }).parentElement).toHaveClass(
+      "sign-in-field",
+      "sign-in-reveal",
+      "sign-in-delay-5",
+    );
+    expect(screen.getByRole("button", { name: "Kirim kode pemulihan" })).toHaveClass(
+      "sign-in-reveal",
+      "sign-in-delay-6",
+    );
+  });
+
   it("asks only for the recovery code before verification", () => {
     render(
       <ResetPasswordFormView
@@ -32,6 +58,8 @@ describe("ResetPasswordFormView", () => {
       />,
     );
 
+    expect(screen.getByRole("heading", { name: "Periksa email kamu" })).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("naila@example.com");
     expect(screen.getByRole("textbox", { name: "Kode pemulihan" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Verifikasi kode" })).toBeEnabled();
     expect(screen.queryByLabelText("Kata sandi baru")).not.toBeInTheDocument();
@@ -53,6 +81,7 @@ describe("ResetPasswordFormView", () => {
       />,
     );
 
+    expect(screen.getByRole("heading", { name: "Buat kata sandi baru" })).toBeInTheDocument();
     const password = screen.getByLabelText("Kata sandi baru");
     const confirmation = screen.getByLabelText("Konfirmasi kata sandi baru");
     expect(password).toHaveAttribute("type", "password");
