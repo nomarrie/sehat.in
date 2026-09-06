@@ -105,7 +105,7 @@ function tickActiveState(
     const remainingMs =
       state.deadlineMs === null
         ? null
-        : Math.max(0, state.deadlineMs - nowMs);
+        : state.deadlineMs - nowMs;
     const updated = {
       ...state,
       remainingMs,
@@ -113,7 +113,7 @@ function tickActiveState(
       activeElapsedMs: state.activeElapsedMs + activeDelta,
     };
 
-    return remainingMs === 0 ? advanceStep(updated, nowMs) : updated;
+    return updated;
   }
 
   if (state.phase === "rest" && state.deadlineMs !== null) {

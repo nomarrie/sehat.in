@@ -40,7 +40,7 @@ const shortPackage: ExercisePackage = {
 };
 
 describe("workout session machine", () => {
-  it("moves from timed work through rest and repetition work to completion", () => {
+  it("keeps timed work active with negative remaining time until it is completed", () => {
     let state = createInitialSessionState(shortPackage);
     state = transitionSession(state, { type: "START", nowMs: 0 });
     expect(state).toMatchObject({
@@ -49,25 +49,33 @@ describe("workout session machine", () => {
       remainingMs: 2000,
     });
 
-    state = transitionSession(state, { type: "TICK", nowMs: 2000 });
+    state = transitionSession(state, { type: "TICK", nowMs: 2500 });
+    expect(state).toMatchObject({
+      phase: "exercise",
+      stepIndex: 0,
+      remainingMs: -500,
+      activeElapsedMs: 2000,
+    });
+
+    state = transitionSession(state, { type: "COMPLETE_WORK", nowMs: 2500 });
     expect(state).toMatchObject({
       phase: "rest",
       stepIndex: 1,
       remainingMs: 1000,
     });
 
-    state = transitionSession(state, { type: "TICK", nowMs: 3000 });
+    state = transitionSession(state, { type: "TICK", nowMs: 3500 });
     expect(state).toMatchObject({
       phase: "exercise",
       stepIndex: 2,
       remainingMs: null,
     });
 
-    state = transitionSession(state, { type: "COMPLETE_WORK", nowMs: 4000 });
+    state = transitionSession(state, { type: "COMPLETE_WORK", nowMs: 4500 });
     expect(state).toMatchObject({
       phase: "completed",
       activeElapsedMs: 3000,
-      completedAtMs: 4000,
+      completedAtMs: 4500,
     });
   });
 
