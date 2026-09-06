@@ -8,7 +8,10 @@ export type RouteSkeletonVariant =
   | "profile"
   | "chat"
   | "onboarding"
-  | "session";
+  | "session"
+  | "login"
+  | "register"
+  | "reset-password";
 
 type LineSize = "xs" | "sm" | "md" | "lg" | "xl" | "full";
 
@@ -691,7 +694,107 @@ function SessionSkeleton() {
   );
 }
 
-const skeletons: Record<Exclude<RouteSkeletonVariant, "chat" | "onboarding" | "session">, () => React.ReactNode> = {
+function AuthFieldSkeleton({ helper = false }: { helper?: boolean }) {
+  return (
+    <div className="route-skeleton-auth-field" data-skeleton-auth-field>
+      <Line size="sm" />
+      {helper ? <Line size="lg" /> : null}
+      <Skeleton className="route-skeleton-auth-input" />
+    </div>
+  );
+}
+
+function AuthSkeleton({
+  variant,
+}: {
+  variant: "login" | "register" | "reset-password";
+}) {
+  const isLogin = variant === "login";
+  const isRegister = variant === "register";
+  const fieldCount = isLogin ? 2 : isRegister ? 3 : 1;
+
+  return (
+    <main
+      className="route-skeleton-auth"
+      data-skeleton-auth
+      data-skeleton-variant={variant}
+      aria-hidden="true"
+      inert
+    >
+      <section className="route-skeleton-auth-form-panel">
+        <div className="route-skeleton-auth-form-wrap">
+          <div className="route-skeleton-auth-brand" data-skeleton-section="auth-brand">
+            <Skeleton className="route-skeleton-brand-mark" />
+            <Line size="sm" />
+          </div>
+
+          <header className="route-skeleton-auth-heading" data-skeleton-section="auth-heading">
+            <Line size="sm" />
+            <Skeleton className="route-skeleton-auth-title" />
+            <div className="route-skeleton-copy">
+              <Line size="full" />
+              <Line size="lg" />
+            </div>
+          </header>
+
+          <div className="route-skeleton-auth-form" data-skeleton-section="auth-form">
+            {Array.from({ length: fieldCount }, (_, index) => (
+              <AuthFieldSkeleton
+                helper={isRegister && index === fieldCount - 1}
+                key={index}
+              />
+            ))}
+
+            {isLogin ? (
+              <div className="route-skeleton-auth-options" data-skeleton-auth-options>
+                <div><Skeleton className="route-skeleton-auth-checkbox" /><Line size="md" /></div>
+                <Line size="sm" />
+              </div>
+            ) : null}
+
+            <Skeleton className="route-skeleton-auth-submit" />
+          </div>
+
+          {isLogin ? (
+            <section className="route-skeleton-auth-oauth" data-skeleton-section="auth-oauth">
+              <div className="route-skeleton-auth-divider"><span /></div>
+              <Skeleton className="route-skeleton-auth-oauth-button" />
+              <Skeleton className="route-skeleton-auth-oauth-button" />
+            </section>
+          ) : null}
+
+          <Skeleton className="route-skeleton-auth-alternate" />
+        </div>
+      </section>
+
+      <aside className="route-skeleton-auth-companion" data-skeleton-section="auth-companion">
+        <div className="route-skeleton-auth-companion-copy">
+          <Line size="sm" />
+          <Skeleton className="route-skeleton-auth-companion-title" />
+          <div className="route-skeleton-copy">
+            <Line size="full" />
+            <Line size="lg" />
+          </div>
+        </div>
+        <div className="route-skeleton-auth-companion-list">
+          {Array.from({ length: 3 }, (_, index) => (
+            <div className="route-skeleton-auth-companion-card" data-skeleton-auth-companion-card key={index}>
+              <Skeleton className="route-skeleton-auth-companion-icon" />
+              <div className="route-skeleton-copy">
+                <Line size="md" />
+                <Line size="lg" />
+                <Line size="full" />
+              </div>
+            </div>
+          ))}
+        </div>
+        <Line size="md" />
+      </aside>
+    </main>
+  );
+}
+
+const skeletons: Record<Exclude<RouteSkeletonVariant, "chat" | "onboarding" | "session" | "login" | "register" | "reset-password">, () => React.ReactNode> = {
   dashboard: DashboardSkeleton,
   food: FoodSkeleton,
   "food-detail": FoodDetailSkeleton,
@@ -710,6 +813,10 @@ export function RouteSkeleton({ variant }: { variant: RouteSkeletonVariant }) {
 
   if (variant === "session") {
     return <SessionSkeleton />;
+  }
+
+  if (variant === "login" || variant === "register" || variant === "reset-password") {
+    return <AuthSkeleton variant={variant} />;
   }
 
   const ContentSkeleton = skeletons[variant];

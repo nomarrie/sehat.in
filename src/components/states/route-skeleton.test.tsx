@@ -2,7 +2,7 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { RouteSkeleton, type RouteSkeletonVariant } from "./route-skeleton";
 
-const expectedSections: Record<Exclude<RouteSkeletonVariant, "chat" | "onboarding" | "session">, string[]> = {
+const expectedSections: Record<Exclude<RouteSkeletonVariant, "chat" | "onboarding" | "session" | "login" | "register" | "reset-password">, string[]> = {
   dashboard: ["dashboard-heading", "weekly-target", "today-workout", "streak-summary", "weight-trend"],
   food: ["food-hero", "food-day-plan", "food-card-list", "food-note"],
   "food-detail": ["food-detail-hero", "nutrition", "ingredients", "cooking", "food-disclaimer"],
@@ -91,5 +91,25 @@ describe("RouteSkeleton", () => {
     expect(container.querySelector('[data-skeleton-section="session-intro"]')).toBeInTheDocument();
     expect(container.querySelector('[data-skeleton-section="session-action"]')).toBeInTheDocument();
     expect(container.querySelectorAll("[data-skeleton-session-fact]")).toHaveLength(3);
+  });
+
+  it.each([
+    ["login", 2, true],
+    ["register", 3, false],
+    ["reset-password", 1, false],
+  ] as const)("adapts the %s fallback to its form", (variant, fieldCount, hasOauth) => {
+    const { container } = render(<RouteSkeleton variant={variant} />);
+
+    const auth = container.querySelector("[data-skeleton-auth]");
+    expect(auth).toHaveAttribute("aria-hidden", "true");
+    expect(auth).toHaveAttribute("inert");
+    expect(auth).toHaveAttribute("data-skeleton-variant", variant);
+    expect(container.querySelector("[data-skeleton-shell]")).not.toBeInTheDocument();
+    expect(container.querySelector('[data-skeleton-section="auth-brand"]')).toBeInTheDocument();
+    expect(container.querySelector('[data-skeleton-section="auth-heading"]')).toBeInTheDocument();
+    expect(container.querySelector('[data-skeleton-section="auth-form"]')).toBeInTheDocument();
+    expect(container.querySelector('[data-skeleton-section="auth-companion"]')).toBeInTheDocument();
+    expect(container.querySelectorAll("[data-skeleton-auth-field]")).toHaveLength(fieldCount);
+    expect(Boolean(container.querySelector('[data-skeleton-section="auth-oauth"]'))).toBe(hasOauth);
   });
 });

@@ -2865,6 +2865,210 @@ button:disabled {
   }
 }
 
+.route-skeleton-auth {
+  display: grid;
+  min-block-size: 100dvh;
+  background: var(--canvas);
+}
+
+.route-skeleton-auth [data-slot="skeleton"] {
+  background: color-mix(in oklch, var(--border), transparent 24%);
+}
+
+.route-skeleton-auth-form-panel {
+  display: grid;
+  place-items: center;
+  min-block-size: 100dvh;
+  padding: clamp(1.25rem, 6vw, 4rem);
+}
+
+.route-skeleton-auth-form-wrap {
+  display: grid;
+  gap: 1.25rem;
+  inline-size: min(100%, 29rem);
+  margin-inline: auto;
+}
+
+.route-skeleton-auth-brand,
+.route-skeleton-auth-options,
+.route-skeleton-auth-options > div,
+.route-skeleton-auth-companion-card {
+  display: flex;
+  align-items: center;
+}
+
+.route-skeleton-auth-brand {
+  gap: 0.65rem;
+  inline-size: 9rem;
+}
+
+.route-skeleton-auth-heading {
+  display: grid;
+  gap: 0.55rem;
+  padding-block-start: clamp(0.75rem, 3vh, 2rem);
+}
+
+.route-skeleton-auth-title {
+  inline-size: min(92%, 27rem);
+  block-size: clamp(2.2rem, 9vw, 4rem);
+  border-radius: 0.75rem;
+}
+
+.route-skeleton-auth-form,
+.route-skeleton-auth-field,
+.route-skeleton-auth-oauth,
+.route-skeleton-auth-companion-copy,
+.route-skeleton-auth-companion-list {
+  display: grid;
+}
+
+.route-skeleton-auth-form {
+  gap: 0.85rem;
+}
+
+.route-skeleton-auth-field {
+  gap: 0.42rem;
+}
+
+.route-skeleton-auth-field > .route-skeleton-line-sm {
+  inline-size: 7rem;
+}
+
+.route-skeleton-auth-field > .route-skeleton-line-lg {
+  inline-size: min(88%, 21rem);
+  block-size: 0.6rem;
+}
+
+.route-skeleton-auth-input {
+  inline-size: 100%;
+  min-block-size: 3.25rem;
+  border: 1px solid var(--border);
+  border-radius: 0.9rem;
+}
+
+.route-skeleton-auth-options {
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.route-skeleton-auth-options > div {
+  gap: 0.55rem;
+  inline-size: 8rem;
+}
+
+.route-skeleton-auth-checkbox {
+  flex: 0 0 auto;
+  inline-size: 1rem;
+  block-size: 1rem;
+  border-radius: 0.25rem;
+}
+
+.route-skeleton-auth-submit,
+.route-skeleton-auth-oauth-button {
+  inline-size: 100%;
+  min-block-size: 3rem;
+  border-radius: 0.8rem;
+}
+
+.route-skeleton-auth-oauth {
+  gap: 0.65rem;
+}
+
+.route-skeleton-auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  block-size: 0.75rem;
+}
+
+.route-skeleton-auth-divider::before,
+.route-skeleton-auth-divider::after {
+  flex: 1;
+  block-size: 1px;
+  background: var(--border-soft);
+  content: "";
+}
+
+.route-skeleton-auth-divider span {
+  inline-size: 7rem;
+  block-size: 0.65rem;
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--border), transparent 24%);
+}
+
+.route-skeleton-auth-alternate {
+  justify-self: center;
+  inline-size: min(72%, 16rem);
+  block-size: 0.7rem;
+  border-radius: 999px;
+}
+
+.route-skeleton-auth-companion {
+  display: none;
+  align-content: end;
+  gap: clamp(1.5rem, 4vw, 3rem);
+  min-block-size: calc(100dvh - 2rem);
+  padding: clamp(2.5rem, 5vw, 5.5rem);
+  margin: 1rem;
+  border-radius: 1.25rem;
+  background: var(--hero-green);
+}
+
+.route-skeleton-auth-companion [data-slot="skeleton"] {
+  background: color-mix(in oklch, var(--hero-text), transparent 78%);
+}
+
+.route-skeleton-auth-companion-copy {
+  gap: 0.75rem;
+  max-inline-size: 44rem;
+}
+
+.route-skeleton-auth-companion-title {
+  inline-size: min(88%, 34rem);
+  block-size: clamp(3rem, 5vw, 5.25rem);
+  border-radius: 0.85rem;
+}
+
+.route-skeleton-auth-companion-list {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.route-skeleton-auth-companion-card {
+  align-items: start;
+  gap: 0.7rem;
+  min-inline-size: 0;
+  padding: 0.9rem;
+  border: 1px solid color-mix(in oklch, var(--hero-text), transparent 84%);
+  border-radius: 1rem;
+  background: white;
+}
+
+.route-skeleton-auth-companion-card [data-slot="skeleton"] {
+  background: color-mix(in oklch, var(--hero-green), transparent 84%);
+}
+
+.route-skeleton-auth-companion-icon {
+  flex: 0 0 auto;
+  inline-size: 2.25rem;
+  block-size: 2.25rem;
+  border-radius: 0.75rem;
+}
+
+@media (min-width: 64rem) {
+  .route-skeleton-auth {
+    grid-template-columns: minmax(28rem, 0.78fr) minmax(0, 1.22fr);
+  }
+
+  .route-skeleton-auth-form-panel {
+    padding: 2rem clamp(2.5rem, 6vw, 6.5rem);
+  }
+
+  .route-skeleton-auth-companion {
+    display: grid;
+  }
+}
+
 .route-state {
   display: grid;
   place-content: center;
