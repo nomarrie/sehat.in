@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 const migrationSource = readFileSync(
   resolve(
     process.cwd(),
-    "migrations/20260906030215_gate-fallback-streak-minutes.sql",
+    "migrations/20260906080633_count-trusted-workout-minutes.sql",
   ),
   "utf8",
 );
@@ -14,23 +14,19 @@ const queriesSource = readFileSync(
   "utf8",
 );
 
-describe("fallback streak minute contract", () => {
-  it("only includes fallback sessions when an AI session exists that day", () => {
+describe("trusted workout streak minute contract", () => {
+  it("counts every saved session from a trusted ready workout", () => {
     expect(migrationSource).toContain(
       "CREATE OR REPLACE FUNCTION public.edge_complete_workout_session",
     );
     expect(migrationSource).toMatch(
-      /JOIN public\.exercise_packages AS workout_package[\s\S]*workout_package\.generated_by_ai[\s\S]*OR EXISTS \([\s\S]*ai_package\.generated_by_ai/,
+      /SELECT COALESCE\(SUM\(active_duration_seconds\), 0\)::INTEGER INTO v_daily_seconds[\s\S]*FROM public\.exercise_sessions WHERE user_id = p_user_id AND activity_date = v_activity_date/,
     );
-    expect(migrationSource).toMatch(
-      /ai_session\.activity_date = v_activity_date/,
-    );
+    expect(migrationSource).not.toContain("generated_by_ai");
   });
 
-  it("loads package provenance before calculating dashboard minutes", () => {
-    expect(queriesSource).toContain(
-      'exercise_packages(generated_by_ai)',
-    );
+  it("loads saved session minutes without requiring package provenance", () => {
+    expect(queriesSource).not.toContain("exercise_packages(generated_by_ai)");
     expect(queriesSource).toContain("calculateEligibleStreakSeconds(");
   });
 });

@@ -9,11 +9,11 @@ describe("calculateEligibleStreakSeconds", () => {
     ])).toBe(1_200);
   });
 
-  it("does not count fallback workouts without an AI-recommended completion", () => {
+  it("counts trusted fallback workouts without an AI-recommended completion", () => {
     expect(calculateEligibleStreakSeconds([
       session(900, false),
       session(600, false),
-    ])).toBe(0);
+    ])).toBe(1_500);
   });
 
   it("counts fallback workouts after an AI-recommended workout is completed that day", () => {
