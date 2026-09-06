@@ -25,6 +25,10 @@ import type {
 import { formatDateLabel, formatLongDate, getDateInTimeZone } from "./format";
 import { mapExercisePackage, mapWeightLog } from "./mappers";
 import { resolvePackageLookup } from "./package-route";
+import {
+  calculateEligibleStreakSeconds,
+  type StreakSessionRow,
+} from "./streak-minutes";
 
 type SehatinClient = Awaited<ReturnType<typeof requireOnboardedUser>>["client"];
 
@@ -172,7 +176,7 @@ export async function loadDashboardData(): Promise<DashboardData> {
     client.database.from("weight_logs").select("weight_kg, logged_on").order("logged_on", { ascending: true }).limit(52),
     client.database.from("weekly_goals").select("start_weight_kg, target_weight_kg, goal_direction, status").order("week_start", { ascending: false }).limit(1),
     client.database.from("streaks").select("current_streak, longest_streak").eq("user_id", user.id).maybeSingle(),
-    client.database.from("exercise_sessions").select("active_duration_seconds").eq("activity_date", today).limit(50),
+    client.database.from("exercise_sessions").select("active_duration_seconds, exercise_packages(generated_by_ai)").eq("activity_date", today).limit(50),
     client.database.from("user_badges").select("earned_at, badges(name, description)").order("earned_at", { ascending: false }).limit(1),
     client.database.from("notifications").select("title, message").order("created_at", { ascending: false }).limit(1),
     loadReadyDailyPlanSnapshot(client, today).then((dailyPlan) => (
@@ -207,7 +211,11 @@ export async function loadDashboardData(): Promise<DashboardData> {
     streak: {
       currentDays: Number(streakResult.data?.current_streak ?? 0),
       longestDays: Number(streakResult.data?.longest_streak ?? 0),
-      activeMinutesToday: Math.floor((sessionsResult.data ?? []).reduce((sum, row) => sum + Number(row.active_duration_seconds), 0) / 60),
+      activeMinutesToday: Math.floor(
+        calculateEligibleStreakSeconds(
+          (sessionsResult.data ?? []) as StreakSessionRow[],
+        ) / 60,
+      ),
       dailyGoalMinutes: 30,
     },
     latestAchievement: badge && latestBadge
