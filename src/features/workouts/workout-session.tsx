@@ -6,6 +6,7 @@ import { ExitSessionDialog } from "./exit-session-dialog";
 import { SessionCompletion } from "./session-completion";
 import { SessionControls } from "./session-controls";
 import { SessionTimer } from "./session-timer";
+import { useTimerAlert } from "./use-timer-alert";
 import { useWorkoutSession } from "./workout-session-provider";
 
 const phaseAnnouncements = {
@@ -18,9 +19,20 @@ const phaseAnnouncements = {
 
 export function WorkoutSession({ workoutPackage }: { workoutPackage: ExercisePackage }) {
   const phase = useWorkoutSession((store) => store.session.phase);
+  const pausedPhase = useWorkoutSession((store) => store.session.pausedPhase);
   const stepIndex = useWorkoutSession((store) => store.session.stepIndex);
   const steps = useWorkoutSession((store) => store.session.steps);
+  const remainingMs = useWorkoutSession((store) => store.session.remainingMs);
   const tick = useWorkoutSession((store) => store.tick);
+  const currentStep = steps[stepIndex];
+  const timedExerciseIsOverdue =
+    currentStep?.kind === "exercise" &&
+    currentStep.durationSeconds !== null &&
+    (phase === "exercise" ||
+      (phase === "paused" && pausedPhase === "exercise")) &&
+    remainingMs !== null &&
+    remainingMs <= 0;
+  const armTimerAlert = useTimerAlert(timedExerciseIsOverdue);
 
   useEffect(() => {
     if (phase !== "exercise" && phase !== "rest") return;
@@ -47,7 +59,7 @@ export function WorkoutSession({ workoutPackage }: { workoutPackage: ExercisePac
       : Math.round((completedWorkSteps / workSteps.length) * 100);
 
   return (
-    <main className="session-layout">
+    <main className="session-layout" onClickCapture={armTimerAlert}>
       <header className="session-header">
         <div>
           <p>{workoutPackage.dayLabel}</p>

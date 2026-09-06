@@ -11,6 +11,7 @@ export function SessionControls({ workoutPackage }: { workoutPackage: ExercisePa
   const phase = useWorkoutSession((store) => store.session.phase);
   const stepIndex = useWorkoutSession((store) => store.session.stepIndex);
   const steps = useWorkoutSession((store) => store.session.steps);
+  const remainingMs = useWorkoutSession((store) => store.session.remainingMs);
   const start = useWorkoutSession((store) => store.start);
   const pause = useWorkoutSession((store) => store.pause);
   const resume = useWorkoutSession((store) => store.resume);
@@ -65,7 +66,11 @@ export function SessionControls({ workoutPackage }: { workoutPackage: ExercisePa
       ? orderedExercises[currentStep.exerciseIndex]
       : undefined;
   const completeLabel =
-    exercise?.mode === "repetitions" ? "Selesai set" : "Selesai lebih awal";
+    exercise?.mode === "repetitions"
+      ? "Selesai set"
+      : remainingMs !== null && remainingMs <= 0
+        ? "Lanjut"
+        : "Selesai lebih awal";
 
   return (
     <div className="session-controls">

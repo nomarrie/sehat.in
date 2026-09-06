@@ -6,6 +6,38 @@ import { WorkoutSession } from "./workout-session";
 import { WorkoutSessionProvider } from "./workout-session-provider";
 
 const completeWorkoutActionMock = vi.hoisted(() => vi.fn());
+const oscillatorStartMock = vi.hoisted(() => vi.fn());
+const oscillatorStopMock = vi.hoisted(() => vi.fn());
+
+class AudioContextMock {
+  currentTime = 0;
+  destination = {} as AudioDestinationNode;
+  state: AudioContextState = "running";
+
+  createGain() {
+    return {
+      connect: vi.fn(),
+      gain: {
+        setValueAtTime: vi.fn(),
+        linearRampToValueAtTime: vi.fn(),
+        exponentialRampToValueAtTime: vi.fn(),
+      },
+    };
+  }
+
+  createOscillator() {
+    return {
+      connect: vi.fn(),
+      frequency: { value: 0 },
+      start: oscillatorStartMock,
+      stop: oscillatorStopMock,
+      type: "sine",
+    };
+  }
+
+  resume = vi.fn().mockResolvedValue(undefined);
+  close = vi.fn().mockResolvedValue(undefined);
+}
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
@@ -38,11 +70,36 @@ const singleExercisePackage: ExercisePackage = {
   ],
 };
 
+const timedExercisePackage: ExercisePackage = {
+  ...singleExercisePackage,
+  id: "sesi-berwaktu",
+  exercises: [
+    {
+      ...singleExercisePackage.exercises[0],
+      id: "gerak-waktu",
+      name: "Gerak Waktu",
+      mode: "timed",
+      repetitions: null,
+      durationSeconds: 2,
+      restSeconds: 1,
+    },
+    {
+      ...singleExercisePackage.exercises[0],
+      id: "gerak-berikutnya",
+      name: "Gerak Berikutnya",
+      order: 2,
+    },
+  ],
+};
+
 describe("WorkoutSession", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-11T08:00:00+08:00"));
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true }));
+    vi.stubGlobal("AudioContext", AudioContextMock);
+    oscillatorStartMock.mockReset();
+    oscillatorStopMock.mockReset();
     completeWorkoutActionMock.mockReset();
     completeWorkoutActionMock.mockResolvedValue({
       ok: true,
@@ -78,6 +135,35 @@ describe("WorkoutSession", () => {
     fireEvent.click(screen.getByRole("button", { name: /lanjutkan/i }));
     act(() => vi.advanceTimersByTime(1000));
     expect(screen.getByRole("timer")).toHaveTextContent("01:58");
+  });
+
+  it("shows negative red time and repeats an alert until the user continues", () => {
+    render(
+      <WorkoutSessionProvider workoutPackage={timedExercisePackage}>
+        <WorkoutSession workoutPackage={timedExercisePackage} />
+      </WorkoutSessionProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /mulai latihan/i }));
+
+    act(() => vi.advanceTimersByTime(2250));
+
+    expect(screen.getByRole("timer")).toHaveTextContent("-00:01");
+    expect(screen.getByRole("timer")).toHaveClass("is-overdue");
+    expect(screen.getByRole("button", { name: /lanjut/i })).toBeInTheDocument();
+    const initialToneCount = oscillatorStartMock.mock.calls.length;
+    expect(initialToneCount).toBeGreaterThan(0);
+
+    act(() => vi.advanceTimersByTime(1500));
+    expect(oscillatorStartMock.mock.calls.length).toBeGreaterThan(initialToneCount);
+
+    fireEvent.click(screen.getByRole("button", { name: /lanjut/i }));
+    expect(screen.getByRole("timer")).toHaveAccessibleName(/istirahat/i);
+    const stoppedToneCount = oscillatorStartMock.mock.calls.length;
+
+    act(() => vi.advanceTimersByTime(500));
+    expect(oscillatorStartMock).toHaveBeenCalledTimes(stoppedToneCount);
+    expect(oscillatorStopMock).toHaveBeenCalled();
   });
 
   it("opens a named exit confirmation dialog", async () => {

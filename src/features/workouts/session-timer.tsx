@@ -87,6 +87,13 @@ export function SessionTimer({ workoutPackage }: { workoutPackage: ExercisePacka
   const exercise = orderedExercises[currentStep.exerciseIndex];
   if (!exercise) return null;
   const seconds = Math.ceil((remainingMs ?? 0) / 1000);
+  const isOverdue =
+    exercise.mode === "timed" &&
+    remainingMs !== null &&
+    remainingMs <= 0;
+  const timerText = isOverdue
+    ? `-${formatClock(Math.ceil(Math.abs(remainingMs) / 1000))}`
+    : formatClock(seconds);
 
   return (
     <section className="session-card timer-card exercise-card session-transition">
@@ -98,16 +105,20 @@ export function SessionTimer({ workoutPackage }: { workoutPackage: ExercisePacka
       <p className="active-instruction">{exercise.instruction}</p>
 
       <div
-        className={exercise.mode === "timed" ? "timer-value" : "repetition-value"}
+        className={
+          exercise.mode === "timed"
+            ? `timer-value${isOverdue ? " is-overdue" : ""}`
+            : "repetition-value"
+        }
         role="timer"
         aria-label={
           exercise.mode === "timed"
-            ? `${exercise.name}, waktu tersisa`
+            ? `${exercise.name}, ${isOverdue ? "waktu terlampaui" : "waktu tersisa"}`
             : `${exercise.name}, target gerakan`
         }
       >
         {exercise.mode === "timed"
-          ? formatClock(seconds)
+          ? timerText
           : `${exercise.repetitions} repetisi`}
       </div>
 

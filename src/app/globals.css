@@ -3316,6 +3316,10 @@ button:disabled {
   line-height: 0.95;
 }
 
+.timer-value.is-overdue {
+  color: var(--danger);
+}
+
 .repetition-value {
   margin-block-start: 1.8rem;
   padding: 1rem 1.35rem;
